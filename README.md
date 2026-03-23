@@ -13,7 +13,7 @@
 
 [![中文文档](https://img.shields.io/badge/中文文档-555555?style=flat-square)](README.md) &nbsp; [![English](https://img.shields.io/badge/English-FF6B6B?style=flat-square)](README_EN.md)
 
-[灵感来源](#灵感来源) · [什么是 OpenHer](#-什么是-openher) · [愿景](#-愿景) · [核心能力](#-核心能力) · [技术原理](#-技术原理) · [记忆架构](#-记忆架构) · [LLM 兼容性](#-llm-兼容性) · [快速开始](#-快速开始) · [创建角色](#-创建你自己的角色) · [路线图](#️-路线图)
+[灵感来源](#灵感来源) · [什么是 OpenHer](#-什么是-openher) · [愿景](#-愿景) · [核心能力](#-核心能力) · [技术原理](#-技术原理) · [记忆架构](#-记忆架构) · [LLM 兼容性](#-llm-兼容性) · [快速开始](#-快速开始) · [微信接入](#-微信接入可选) · [创建角色](#-创建你自己的角色) · [路线图](#️-路线图)
 
 </div>
 
@@ -344,6 +344,50 @@ cd vendor/EverMemOS && docker compose up -d && uv run python src/run.py
 EVERMEMOS_BASE_URL=http://localhost:1995/api/v1
 ```
 
+### 💬 微信接入（可选）
+
+通过 [wechat-to-anything](https://www.npmjs.com/package/wechat-to-anything) 将 OpenHer 接入微信，实现文字、语音、照片的完整体验。
+
+**原理**：一个轻量 Python adapter（`wechat_adapter.py`）将 OpenHer REST API 翻译为 OpenAI 兼容格式，`wechat-to-anything` 负责微信消息的收发。
+
+```
+微信用户 ←→ wechat-to-anything ←→ wechat_adapter.py ←→ OpenHer
+                (桥)                 (适配器 :8001)       (后端 :8000)
+```
+
+**1. 启动 adapter**
+
+```bash
+python wechat_adapter.py
+# 🔗 OpenHer WeChat Adapter
+#    Listen: 0.0.0.0:8001
+```
+
+环境变量：
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `OPENHER_BASE` | OpenHer 后端地址 | `http://localhost:8000` |
+| `OPENHER_PERSONA` | 默认角色 | `luna` |
+| `ADAPTER_PORT` | adapter 端口 | `8001` |
+
+**2. 启动微信桥**
+
+```bash
+npx -y wechat-to-anything@latest http://localhost:8001/v1
+# 首次使用会弹出二维码，用微信扫码登录
+```
+
+**支持的消息类型：**
+
+| 方向 | 文字 | 语音 | 照片 | 文件 |
+|:-----|:----:|:----:|:----:|:----:|
+| 微信 → Agent | ✅ | ✅ 自动转文字 | ✅ 多模态识别 | ✅ 内容提取 |
+| Agent → 微信 | ✅ | ✅ 人格引擎 TTS | ✅ CDN 上传 | — |
+
+- **语音回复**：使用人格引擎的情感 TTS（Qwen3-TTS + 情感指导），自动转码为 SILK 格式发送
+- **照片回复**：Gemini 生图 → adapter 本地 serve → 桥下载并 CDN 上传 → 微信图片消息
+
 ---
 
 ## 🎨 创建你自己的角色
@@ -387,6 +431,7 @@ genome_seed:
 | LLM | Gemini, Claude, Qwen3, GPT-5.4-mini / GPT-4o, MiniMax, Moonshot, StepFun, Ollama |
 | 记忆 | **EverMemOS**（自部署 / 云端）+ SQLite 本地状态 |
 | 桌面端 | SwiftUI (macOS 原生) |
+| 微信 | [wechat-to-anything](https://www.npmjs.com/package/wechat-to-anything) + Python adapter |
 | 语音 | DashScope · OpenAI · MiniMax |
 | 图像 | Gemini Imagen |
 | 技能 | 可扩展 SKILL.md 框架（表达方式、任务、管理） |
