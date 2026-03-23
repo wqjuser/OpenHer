@@ -510,14 +510,6 @@ genome_seed:
 
 *性格不是一段 prompt，而是一个活的过程。*
 
-⭐ 如果 OpenHer 打动了你，一个 star 能让更多人发现它。
 
-<a href="https://star-history.com/#kellyvv/OpenHer&type=Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=kellyvv/OpenHer&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=kellyvv/OpenHer&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=kellyvv/OpenHer&type=Date" width="600" />
-  </picture>
-</a>
 
 </div>
