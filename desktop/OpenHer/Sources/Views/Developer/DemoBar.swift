@@ -129,13 +129,21 @@ struct DemoBar: View {
                 Spacer()
             }
 
-            // Row 3: Preset messages
+            // Row 3: Preset quick messages
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(appState.demoPresets) { preset in
-                        Button(preset.label) {
-                            appState.demoSendPreset(preset)
-                            showAction("💬 \(preset.label)")
+                    Text("💬")
+                        .font(.system(size: 12))
+                    ForEach([
+                        ("在干嘛呢？", "在干嘛呢？"),
+                        ("帮我买杯咖啡呗", "帮我买杯咖啡呗"),
+                        ("今天好累啊", "今天好累啊"),
+                        ("想你了", "想你了"),
+                        ("晚上吃什么", "晚上吃什么"),
+                    ], id: \.0) { (label, msg) in
+                        Button(label) {
+                            appState.sendMessage(msg)
+                            showAction("💬 \(label)")
                         }
                         .font(.system(size: 11))
                         .foregroundStyle(Paper.herText)
