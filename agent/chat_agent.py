@@ -817,7 +817,7 @@ class ChatAgent(PromptBuilderMixin, EverMemosMixin, ModalityRetryMixin, Proactiv
             "input_vector": [round(v, 4) for v in input_vec],
             "drive_state": drive_st,
             "drive_baseline": {d: round(self.agent.drive_baseline[d], 4) for d in DRIVES},
-            "frustration": {d: round(self.metabolism.drives[d].frustration, 4) for d in DRIVES},
+            "frustration": {d: round(self.metabolism.frustration[d], 4) for d in DRIVES},
             "total_frustration": round(self.metabolism.total(), 4),
             "temperature": round(self.metabolism.temperature(), 4),
             "monologue": self._last_action.get("monologue", "") if self._last_action else "",
