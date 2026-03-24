@@ -207,6 +207,113 @@ struct DemoBar: View {
                 Spacer()
             }
 
+            // Row 5: Dismissive spam (emotion accumulation demo)
+            HStack(spacing: 6) {
+                Text("😑")
+                    .font(.system(size: 12))
+                Button("连发敷衍 (嗯→哦→嗯嗯)") {
+                    showAction("😑 连发敷衍中...")
+                    // Send 3 dismissive messages with delays
+                    let msgs = ["嗯", "哦", "嗯嗯"]
+                    for (i, msg) in msgs.enumerated() {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 12.0) {
+                            appState.sendMessage(msg)
+                            showAction("😑 [\(i+1)/3] \(msg)")
+                        }
+                    }
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.orange.opacity(0.7))
+                )
+                .buttonStyle(.plain)
+
+                Spacer()
+            }
+
+            // Row 6: Scenario injection
+            HStack(spacing: 6) {
+                Text("🎚️")
+                    .font(.system(size: 12))
+                Button("💥 爆发") {
+                    appState.demoApplyScenario("about_to_snap")
+                    showAction("🎚️ 场景: 即将爆发")
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.6)))
+                .buttonStyle(.plain)
+
+                Button("😢 孤独") {
+                    appState.demoApplyScenario("lonely")
+                    showAction("🎚️ 场景: 孤独8h")
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.5)))
+                .buttonStyle(.plain)
+
+                Button("💕 深度") {
+                    appState.demoApplyScenario("deeply_bonded")
+                    showAction("🎚️ 场景: 深度关系")
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.pink.opacity(0.6)))
+                .buttonStyle(.plain)
+
+                Button("🧘 重置") {
+                    appState.demoApplyScenario("calm_reset")
+                    showAction("🎚️ 场景: 冷静重置")
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(Paper.herText)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Paper.faint.opacity(0.2)))
+                .buttonStyle(.plain)
+
+                Spacer()
+            }
+
+            Divider().opacity(0.3)
+
+            // Monologue display — show AI's inner thoughts
+            if !appState.engineDebug.monologue.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("💭 内心独白")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(Paper.faint)
+                    Text("「\(appState.engineDebug.monologue)」")
+                        .font(.system(size: 11, weight: .regular, design: .serif))
+                        .italic()
+                        .foregroundStyle(Paper.herText.opacity(0.8))
+                        .lineLimit(3)
+                        .lineSpacing(3)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.orange.opacity(0.06))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(Color.orange.opacity(0.15))
+                        )
+                )
+            }
+
             Divider().opacity(0.3)
 
             // Row 4: Live drive status with deltas
