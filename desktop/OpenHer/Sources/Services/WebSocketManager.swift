@@ -55,8 +55,8 @@ final class WebSocketManager: ObservableObject {
             payload["greeting"] = greetingMsg.content
         }
 
-        // Developer mode: request full engine debug data
-        if appState?.developerMode == true {
+        // Developer mode or Demo mode: request full engine debug data
+        if appState?.developerMode == true || appState?.demoMode == true {
             payload["debug"] = true
         }
 
@@ -228,6 +228,13 @@ final class WebSocketManager: ObservableObject {
                     print("[debug]  signals: dir=\(sigs["directness"] ?? "?") vul=\(sigs["vulnerability"] ?? "?") play=\(sigs["playfulness"] ?? "?") warm=\(sigs["warmth"] ?? "?")")
                     print("[debug]  drives:  conn=\(drives["connection"] ?? "?") nov=\(drives["novelty"] ?? "?") expr=\(drives["expression"] ?? "?")")
                     print("[debug]  monologue: \(mono)")
+
+                    // ── Demo: sync demoSnapshot from chat debug data ──
+                    if appState?.demoMode == true {
+                        if let snapshot = DemoEngineSnapshot.from(debugJson) {
+                            appState?.demoSnapshot = snapshot
+                        }
+                    }
                 }
 
                 print("[mood] valence=\(valence) reward=\(reward) temp=\(temp) → \(newMood)")
