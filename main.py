@@ -1255,8 +1255,32 @@ async def websocket_chat(ws: WebSocket):
                     hours = float(msg.get("hours", 1))
                     demo = DemoController(agent)
                     result = demo.time_jump(hours)
-                    print(f"  [demo] ⏩ time_jump +{hours}h → temp={result['temperature']:.3f}, frust={result['total_frustration']:.2f}")
+                    print(f"  [demo] ⏩ time_jump +{hours}h → temp={result['temperature']:.3f}, frust={result['total_frustration']:.2f}", flush=True)
                     await ws.send_json({"type": "demo_state", **result})
+
+                    # Auto-trigger proactive sweep — AI naturally checks its drives
+                    try:
+                        pro_result = await asyncio.wait_for(
+                            demo.force_proactive(simulated_hours=hours), timeout=30
+                        )
+                        if pro_result.get("proactive_fired"):
+                            reply = pro_result.get("proactive_reply", "")
+                            modality = pro_result.get("proactive_modality", "文字")
+                            await ws.send_json({
+                                "type": "proactive",
+                                "content": reply,
+                                "modality": modality,
+                            })
+                            print(f"  [demo] 💭 自驱消息: {reply[:40]}", flush=True)
+                        else:
+                            print(f"  [demo] 💭 no impulse after +{hours}h", flush=True)
+                        await ws.send_json({"type": "demo_state", **pro_result})
+                    except asyncio.TimeoutError:
+                        print(f"  [demo] ⏰ proactive tick timeout (30s)", flush=True)
+                    except Exception as e:
+                        import traceback
+                        print(f"  [demo] ❌ proactive after jump failed: {e}", flush=True)
+                        traceback.print_exc()
 
             # ── Demo: State Injection ──
             elif msg_type == "demo_inject":
@@ -1264,7 +1288,7 @@ async def websocket_chat(ws: WebSocket):
                     overrides = msg.get("overrides", {})
                     demo = DemoController(agent)
                     result = demo.inject_state(overrides)
-                    print(f"  [demo] 🎚️ inject → temp={result['temperature']:.3f}, frust={result['total_frustration']:.2f}")
+                    print(f"  [demo] 🎚️ inject → temp={result['temperature']:.3f}, frust={result['total_frustration']:.2f}", flush=True)
                     await ws.send_json({"type": "demo_state", **result})
 
             # ── Demo: Apply Scenario ──
@@ -1278,8 +1302,32 @@ async def websocket_chat(ws: WebSocket):
                     )
                     demo.load_presets_file(_presets_file)
                     result = demo.apply_scenario(scenario_id)
-                    print(f"  [demo] 🎚️ scenario '{scenario_id}' → temp={result.get('temperature', 0):.3f}")
+                    print(f"  [demo] 🎚️ scenario '{scenario_id}' → temp={result.get('temperature', 0):.3f}", flush=True)
                     await ws.send_json({"type": "demo_state", **result})
+
+                    # Auto-trigger proactive sweep after scenario
+                    try:
+                        pro_result = await asyncio.wait_for(
+                            demo.force_proactive(), timeout=30
+                        )
+                        if pro_result.get("proactive_fired"):
+                            reply = pro_result.get("proactive_reply", "")
+                            modality = pro_result.get("proactive_modality", "文字")
+                            await ws.send_json({
+                                "type": "proactive",
+                                "content": reply,
+                                "modality": modality,
+                            })
+                            print(f"  [demo] 💭 自驱消息: {reply[:40]}", flush=True)
+                        else:
+                            print(f"  [demo] 💭 no impulse after scenario '{scenario_id}'", flush=True)
+                        await ws.send_json({"type": "demo_state", **pro_result})
+                    except asyncio.TimeoutError:
+                        print(f"  [demo] ⏰ proactive tick timeout (30s)", flush=True)
+                    except Exception as e:
+                        import traceback
+                        print(f"  [demo] ❌ proactive after scenario failed: {e}", flush=True)
+                        traceback.print_exc()
 
             # ── Demo: Get Presets ──
             elif msg_type == "demo_presets":
