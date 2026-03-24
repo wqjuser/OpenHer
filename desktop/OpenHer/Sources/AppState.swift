@@ -59,6 +59,12 @@ final class AppState: ObservableObject {
     }
     @Published var engineDebug: EngineDebugState = EngineDebugState()
 
+    // MARK: - Demo Mode
+    @Published var demoMode: Bool = false
+    @Published var demoPresets: [DemoPreset] = []
+    @Published var demoScenarios: [String: DemoScenario] = [:]
+    @Published var demoSnapshot: DemoEngineSnapshot? = nil
+
     // MARK: - Image Cache (shared between PersonaCard → AwakeningView)
     /// Front images cached after first download, keyed by personaId.
     var cachedFrontImages: [String: NSImage] = [:]
@@ -356,5 +362,34 @@ final class AppState: ObservableObject {
         wsManager.disconnect()
         connectionManager.startMonitoring()
         Task { await loadPersonas() }
+    }
+
+    // MARK: - Demo Mode Actions
+
+    func demoLoadPresets() {
+        wsManager.sendDemoPresets()
+    }
+
+    func demoTimeJump(hours: Double) {
+        wsManager.sendDemoTimeJump(hours: hours)
+    }
+
+    func demoApplyScenario(_ scenarioId: String) {
+        wsManager.sendDemoScenario(scenarioId: scenarioId)
+    }
+
+    func demoSendPreset(_ preset: DemoPreset) {
+        sendMessage(preset.message)
+    }
+
+    func demoSwitchPersona(_ personaId: String) {
+        guard personaId != selectedPersonaId else { return }
+        selectedPersonaId = personaId
+        UserDefaults.standard.set(personaId, forKey: "selectedPersonaId")
+        messages = []
+        wsManager.sendSwitchPersona(
+            personaId: personaId,
+            clientId: getClientId()
+        )
     }
 }

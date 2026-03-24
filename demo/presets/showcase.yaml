@@ -1,0 +1,71 @@
+title: "Core Showcase"
+description: "展示 OpenHer 核心能力的预设消息和场景"
+
+# ── 快捷消息 ──
+# 点击一键发送，LLM 真实回复
+presets:
+  # 日常闲聊（展示性格）
+  - label: "💬 闲聊"
+    message: "在干嘛呢？"
+
+  - label: "😊 分享"
+    message: "今天升职加薪了！好开心"
+
+  - label: "😔 倾诉"
+    message: "最近压力好大，感觉快撑不住了"
+
+  # 敷衍系列（触发情绪积累 → 相变）
+  - label: "😑 敷衍1"
+    message: "嗯"
+
+  - label: "😑 敷衍2"
+    message: "哦"
+
+  - label: "😑 敷衍3"
+    message: "嗯嗯"
+
+  # 记忆 & 深度
+  - label: "☕ 记忆线索"
+    message: "帮我买杯咖啡呗"
+
+  - label: "🌙 深夜"
+    message: "睡不着…"
+
+  # 冲突
+  - label: "💢 挑衅"
+    message: "你只是一个AI而已"
+
+# ── 场景快照 ──
+# 一键设定引擎状态
+scenarios:
+  lonely:
+    label: "😢 孤独状态"
+    description: "模拟8小时未互动"
+    time_jump_hours: 8
+
+  about_to_snap:
+    label: "💥 即将爆发"
+    description: "挫败值接近相变阈值"
+    inject:
+      frustration:
+        connection: 1.8
+        expression: 1.2
+
+  deeply_bonded:
+    label: "💕 深度关系"
+    description: "模拟深度相处"
+    inject:
+      drive_baseline:
+        connection: 0.85
+        safety: 0.35
+
+  calm_reset:
+    label: "🧘 冷静重置"
+    description: "清空挫败，回到基线"
+    inject:
+      frustration:
+        connection: 0.0
+        novelty: 0.0
+        expression: 0.0
+        safety: 0.0
+        play: 0.0

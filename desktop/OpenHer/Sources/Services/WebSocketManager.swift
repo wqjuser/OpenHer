@@ -88,6 +88,42 @@ final class WebSocketManager: ObservableObject {
         }
     }
 
+    // MARK: - Demo Mode
+
+    func sendDemoTimeJump(hours: Double) {
+        sendJSON(["type": "demo_time_jump", "hours": hours])
+    }
+
+    func sendDemoInject(overrides: [String: Any]) {
+        sendJSON(["type": "demo_inject", "overrides": overrides])
+    }
+
+    func sendDemoScenario(scenarioId: String) {
+        sendJSON(["type": "demo_scenario", "scenario_id": scenarioId])
+    }
+
+    func sendDemoPresets() {
+        sendJSON(["type": "demo_presets"])
+    }
+
+    func sendSwitchPersona(personaId: String, clientId: String) {
+        sendJSON([
+            "type": "switch_persona",
+            "persona_id": personaId,
+            "client_id": clientId,
+        ])
+    }
+
+    private func sendJSON(_ payload: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let text = String(data: data, encoding: .utf8) else { return }
+        webSocketTask?.send(.string(text)) { error in
+            if let error = error {
+                print("[WS] Send error: \(error)")
+            }
+        }
+    }
+
     // MARK: - Receive
 
     private func listenForMessages() {
@@ -235,6 +271,38 @@ final class WebSocketManager: ObservableObject {
                     appState?.messages[idx].audioData = audioData
                 }
             }
+
+        case "persona_switched":
+            let personaName = json["persona"] as? String ?? "Unknown"
+            sessionId = json["session_id"] as? String
+            print("[WS] Persona switched to: \(personaName)")
+
+        case "demo_state":
+            if let snapshot = DemoEngineSnapshot.from(json) {
+                appState?.demoSnapshot = snapshot
+                print("[demo] state updated: temp=\(snapshot.temperature), frust=\(snapshot.totalFrustration)")
+            }
+
+        case "demo_presets":
+            if let presetsRaw = json["presets"] as? [[String: String]] {
+                appState?.demoPresets = presetsRaw.compactMap { dict in
+                    guard let label = dict["label"], let message = dict["message"] else { return nil }
+                    return DemoPreset(label: label, message: message)
+                }
+            }
+            if let scenariosRaw = json["scenarios"] as? [String: [String: Any]] {
+                var scenarios: [String: DemoScenario] = [:]
+                for (key, val) in scenariosRaw {
+                    scenarios[key] = DemoScenario(
+                        label: val["label"] as? String ?? key,
+                        description: val["description"] as? String ?? "",
+                        timeJumpHours: val["time_jump_hours"] as? Double,
+                        inject: val["inject"] as? [String: [String: Double]]
+                    )
+                }
+                appState?.demoScenarios = scenarios
+            }
+            print("[demo] loaded \(appState?.demoPresets.count ?? 0) presets, \(appState?.demoScenarios.count ?? 0) scenarios")
 
         default:
             break

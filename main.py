@@ -44,6 +44,7 @@ from providers.api_config import get_llm_config, get_tts_config, get_memory_conf
 from agent.cron_scheduler import CronScheduler
 from agent.output_router import stream_to_ws as _stream_to_ws
 from engine.genome import DRIVE_LABELS
+from agent.demo_controller import DemoController
 
 # ──────────────────────────────────────────────────────────────
 # Load env
@@ -1247,6 +1248,56 @@ async def websocket_chat(ws: WebSocket):
                         })
                     except ValueError as e:
                         await ws.send_json({"type": "error", "content": str(e)})
+
+            # ── Demo: Time Jump ──
+            elif msg_type == "demo_time_jump":
+                if agent:
+                    hours = float(msg.get("hours", 1))
+                    demo = DemoController(agent)
+                    result = demo.time_jump(hours)
+                    print(f"  [demo] ⏩ time_jump +{hours}h → temp={result['temperature']:.3f}, frust={result['total_frustration']:.2f}")
+                    await ws.send_json({"type": "demo_state", **result})
+
+            # ── Demo: State Injection ──
+            elif msg_type == "demo_inject":
+                if agent:
+                    overrides = msg.get("overrides", {})
+                    demo = DemoController(agent)
+                    result = demo.inject_state(overrides)
+                    print(f"  [demo] 🎚️ inject → temp={result['temperature']:.3f}, frust={result['total_frustration']:.2f}")
+                    await ws.send_json({"type": "demo_state", **result})
+
+            # ── Demo: Apply Scenario ──
+            elif msg_type == "demo_scenario":
+                if agent:
+                    scenario_id = msg.get("scenario_id", "")
+                    demo = DemoController(agent)
+                    _presets_file = os.path.join(
+                        os.path.dirname(os.path.abspath(__file__)),
+                        "demo", "presets", "showcase.yaml"
+                    )
+                    demo.load_presets_file(_presets_file)
+                    result = demo.apply_scenario(scenario_id)
+                    print(f"  [demo] 🎚️ scenario '{scenario_id}' → temp={result.get('temperature', 0):.3f}")
+                    await ws.send_json({"type": "demo_state", **result})
+
+            # ── Demo: Get Presets ──
+            elif msg_type == "demo_presets":
+                _presets_file = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "demo", "presets", "showcase.yaml"
+                )
+                try:
+                    import yaml as _yaml
+                    from pathlib import Path as _P
+                    _data = _yaml.safe_load(_P(_presets_file).read_text(encoding='utf-8'))
+                    await ws.send_json({
+                        "type": "demo_presets",
+                        "presets": _data.get("presets", []),
+                        "scenarios": _data.get("scenarios", {}),
+                    })
+                except Exception as e:
+                    await ws.send_json({"type": "error", "content": f"Failed to load presets: {e}"})
 
     except WebSocketDisconnect:
         pass

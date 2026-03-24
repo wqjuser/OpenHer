@@ -95,5 +95,17 @@ struct OpenHerApp: App {
         .windowResizability(.contentSize)
         .defaultSize(width: 1100, height: 680)
         .defaultPosition(.trailing)
+
+        // ⌘D toggles Demo Mode
+        .commands {
+            CommandMenu("Demo") {
+                Button(appState.demoMode ? "Exit Demo Mode" : "Enter Demo Mode") {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        appState.demoMode.toggle()
+                    }
+                }
+                .keyboardShortcut("d", modifiers: .command)
+            }
+        }
     }
 }
