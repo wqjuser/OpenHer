@@ -96,13 +96,22 @@ struct OpenHerApp: App {
         .defaultSize(width: 1100, height: 680)
         .defaultPosition(.trailing)
 
-        // ⌘D toggles Demo Mode
+        // Demo Bar — standalone floating panel
+        Window("Demo Controls", id: "demo-bar") {
+            DemoBar()
+                .environmentObject(appState)
+                .frame(minWidth: 420, maxWidth: 600)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+        .defaultSize(width: 480, height: 220)
+        .defaultPosition(.bottom)
+
+        // ⌘D toggles Demo Bar window
         .commands {
             CommandMenu("Demo") {
-                Button(appState.demoMode ? "Exit Demo Mode" : "Enter Demo Mode") {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        appState.demoMode.toggle()
-                    }
+                Button(appState.demoMode ? "Hide Demo Bar" : "Show Demo Bar") {
+                    appState.demoMode.toggle()
                 }
                 .keyboardShortcut("d", modifiers: .command)
             }

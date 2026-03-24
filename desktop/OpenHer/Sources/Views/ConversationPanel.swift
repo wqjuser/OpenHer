@@ -150,12 +150,6 @@ struct ConversationPanel: View {
                 }
             }
 
-            // Demo Bar overlay (above input line)
-            if appState.demoMode {
-                DemoBar()
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-
             // Input line at bottom
             InputLine(
                 text: $inputText,
