@@ -104,20 +104,29 @@ class DemoController:
     # ── Memory Injection ──
 
     async def inject_memory(self, content: str, category: str = "preference") -> dict:
-        """Plant a memory into EverMemOS for later recall.
+        """Plant a memory for later recall — dual-path for demo reliability.
 
-        Uses the existing EverMemOS POST /memories API directly.
-        Does NOT modify core engine — just stores to existing memory service.
+        Path 1: POST to EverMemOS for long-term storage (async processing)
+        Path 2: Immediately inject into agent._user_profile so it appears
+                 in the very next prompt without waiting for EverMemOS indexing.
 
-        Args:
-            content: The memory content (e.g., "用户喜欢美式不加糖")
-            category: Memory category ("preference", "fact", "episode")
+        Does NOT modify core engine — just sets existing public fields.
         """
         import uuid as _uuid
         import time as _time
 
         result = {"injected": False, "content": content, "category": category}
 
+        # ── Path 2: Immediate prompt injection (always works) ──
+        label = {"preference": "偏好", "fact": "事实", "episode": "经历"}.get(category, category)
+        inject_text = f"{label}: {content}"
+        current = getattr(self.agent, '_user_profile', '') or ''
+        if inject_text not in current:
+            self.agent._user_profile = (current + f"\n{inject_text}").strip()
+            result["injected"] = True
+            print(f"  [demo] 💾 memory → _user_profile: {inject_text}", flush=True)
+
+        # ── Path 1: EverMemOS long-term storage (best effort) ──
         evermemos = self.agent.evermemos
         if evermemos and evermemos.available and evermemos._client:
             try:
@@ -134,17 +143,11 @@ class DemoController:
                     "flush": True,
                 })
                 if resp.status_code in (200, 202):
-                    result["injected"] = True
-                    print(f"  [demo] 💾 memory injected: {content[:50]} (HTTP {resp.status_code})")
+                    print(f"  [demo] 💾 EverMemOS stored: HTTP {resp.status_code}", flush=True)
                 else:
-                    result["error"] = f"HTTP {resp.status_code}: {resp.text[:100]}"
-                    print(f"  [demo] ❌ memory inject failed: HTTP {resp.status_code}")
+                    print(f"  [demo] ⚠️ EverMemOS store HTTP {resp.status_code}", flush=True)
             except Exception as e:
-                result["error"] = str(e)
-                print(f"  [demo] ❌ memory inject failed: {e}")
-        else:
-            result["error"] = "EverMemOS not available"
-            print(f"  [demo] ⚠️ EverMemOS not available, memory not injected")
+                print(f"  [demo] ⚠️ EverMemOS store failed: {e}", flush=True)
 
         return result
 
