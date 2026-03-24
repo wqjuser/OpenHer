@@ -154,53 +154,40 @@ class ProactiveMixin:
         # ── R1: FROZEN — Do NOT evolve drive baselines (Step 3.5) ──
         # ── R1: FROZEN — Do NOT do Hebbian learning (Step 10) ──
 
-        # ── Step 8: Compute signals + noise ──
+        # ── Step 8: Build single-pass prompt (matching ChatAgent pattern) ──
         base_signals = self.agent.compute_signals(context)
-        total_frust = self.metabolism.total()
         noisy_signals = self.metabolism.apply_thermodynamic_noise(base_signals)
 
-        # ── Step 9: Build Feel prompt (Pass 1) ──
         self.style_memory.set_clock(start)
-        few_shot = self.style_memory.build_few_shot_prompt(context, top_k=3, monologue_only=True, lang=self.persona.lang)
-        feel_prompt = self._build_feel_prompt(few_shot, noisy_signals)
+        few_shot = self.style_memory.build_few_shot_prompt(
+            context, top_k=3, monologue_only=False, lang=self.persona.lang,
+        )
+        single_prompt = self._build_single_prompt(few_shot, noisy_signals)
 
-        # ── Step 9.5: Memory injection into Feel prompt (foresight is key driver here) ──
+        # ── Step 8.5: Memory injection into prompt ──
         if self._session_ctx and self._session_ctx.has_history:
             if self.persona.lang == 'en':
                 if self._user_profile:
-                    feel_prompt += f"\n\n[{name}'s preferences] {self._user_profile[:300]}"
+                    single_prompt += f"\n\n[{name}'s preferences] {self._user_profile[:300]}"
                 if self._episode_summary:
-                    feel_prompt += f"\n\n[Past interactions with {name}] {self._episode_summary[:300]}"
+                    single_prompt += f"\n\n[Past interactions with {name}] {self._episode_summary[:300]}"
                 if self._foresight_text:
-                    feel_prompt += f"\n\n[Worth noting] {self._foresight_text}"
+                    single_prompt += f"\n\n[Worth noting] {self._foresight_text}"
             else:
                 if self._user_profile:
-                    feel_prompt += f"\n\n[关于{name}的偏好] {self._user_profile[:300]}"
+                    single_prompt += f"\n\n[关于{name}的偏好] {self._user_profile[:300]}"
                 if self._episode_summary:
-                    feel_prompt += f"\n\n[与{name}过去发生的事] {self._episode_summary[:300]}"
+                    single_prompt += f"\n\n[与{name}过去发生的事] {self._episode_summary[:300]}"
                 if self._foresight_text:
-                    feel_prompt += f"\n\n[近期值得关心] {self._foresight_text}"
+                    single_prompt += f"\n\n[近期值得关心] {self._foresight_text}"
 
-        # ── Step 10a: Pass 1 — Feel (generates monologue only, no reply instruction) ──
-        feel_messages = [
-            ChatMessage(role="system", content=feel_prompt),
+        # ── Step 9: Single-pass LLM call ──
+        single_messages = [
+            ChatMessage(role="system", content=single_prompt),
             ChatMessage(role="user", content=stimulus),
         ]
-        feel_response = await self.llm.chat(feel_messages)
-        monologue = self._extract_monologue(feel_response.content)
-
-        # ── Step 10b: Pass 2 — Express (monologue → reply + modality) ──
-        turn_lang = self._detect_turn_lang(stimulus)
-        express_few_shot = self.style_memory.build_few_shot_prompt(
-            context, top_k=2, monologue_only=False, lang=turn_lang,
-        )
-        express_prompt = self._build_express_prompt(monologue, few_shot=express_few_shot, signals=noisy_signals)
-        express_messages = [
-            ChatMessage(role="system", content=express_prompt),
-            ChatMessage(role="user", content=stimulus),
-        ]
-        express_response = await self.llm.chat(express_messages)
-        _, reply, modality = extract_reply(express_response.content)
+        single_response = await self.llm.chat(single_messages)
+        monologue, reply, modality = extract_reply(single_response.content)
 
         elapsed = start and (time.time() - start) or 0
         if elapsed > 300:
