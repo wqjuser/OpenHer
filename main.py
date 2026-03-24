@@ -1299,6 +1299,38 @@ async def websocket_chat(ws: WebSocket):
                 except Exception as e:
                     await ws.send_json({"type": "error", "content": f"Failed to load presets: {e}"})
 
+            # ── Demo: Force Proactive Tick ──
+            elif msg_type == "demo_force_proactive":
+                if agent:
+                    demo = DemoController(agent)
+                    result = await demo.force_proactive()
+                    fired = result.get("proactive_fired", False)
+                    if fired:
+                        reply = result.get("proactive_reply", "")
+                        modality = result.get("proactive_modality", "文字")
+                        # Push as proactive message to client (same as real proactive)
+                        await ws.send_json({
+                            "type": "proactive",
+                            "content": reply,
+                            "modality": modality,
+                        })
+                        print(f"  [demo] 💭 proactive fired: {reply[:40]}")
+                    else:
+                        print(f"  [demo] 💭 proactive: no impulse / silence")
+                    await ws.send_json({"type": "demo_state", **result})
+
+            # ── Demo: Inject Memory ──
+            elif msg_type == "demo_inject_memory":
+                if agent:
+                    content = msg.get("content", "")
+                    category = msg.get("category", "preference")
+                    if content:
+                        demo = DemoController(agent)
+                        result = await demo.inject_memory(content, category)
+                        await ws.send_json({"type": "demo_memory", **result})
+                    else:
+                        await ws.send_json({"type": "error", "content": "memory content is empty"})
+
     except WebSocketDisconnect:
         pass
     except Exception as e:

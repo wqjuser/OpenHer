@@ -2,11 +2,14 @@
 DemoController — Engine control console for demo/recording sessions.
 
 Provides "god mode" tools for presentations:
-  1. Time jump: fast-forward metabolism engine by N hours
-  2. State injection: directly set frustration/drive values
-  3. Preset messages: pre-loaded demo messages for quick-fire sending
+  1. Time jump:        fast-forward metabolism engine by N hours
+  2. State injection:  directly set frustration/drive values
+  3. Force proactive:  trigger proactive tick immediately
+  4. Inject memory:    plant a memory for later recall
+  5. Preset messages:  pre-loaded demo messages for quick-fire sending
 
 All LLM responses remain real — this only manipulates engine state.
+Zero modification to core engine files.
 """
 
 from __future__ import annotations
@@ -41,18 +44,109 @@ class DemoController:
 
         Drives and frustration evolve according to physics equations:
           - frustration *= e^(-λΔt)  (cooling)
-          - connection += k * Δt     (loneliness)
-          - novelty += k * Δt        (boredom)
+          - connection += k * Δt     (loneliness accumulates)
+          - novelty += k * Δt        (boredom accumulates)
+
+        Crucially sets _last_active to simulate "N hours of silence"
+        so proactive_tick sees the gap.
 
         Returns: engine state snapshot after the jump.
         """
         future = time.time() + hours * 3600
         self.agent.metabolism.time_metabolism(future)
         self.agent.metabolism.sync_to_agent(self.agent.agent)
-        # Update _last_active so proactive system sees the gap
+        # KEY: Set _last_active to N hours AGO so proactive sees the gap
         if hasattr(self.agent, '_last_active'):
-            self.agent._last_active = time.time()
+            self.agent._last_active = time.time() - hours * 3600
         return self.snapshot()
+
+    # ── Force Proactive ──
+
+    async def force_proactive(self, simulated_hours: float = 0) -> dict:
+        """Force an immediate proactive tick (bypasses heartbeat timer).
+
+        KEY TRICK: proactive_tick() calls time_metabolism(now) internally,
+        which uses metabolism._last_tick to compute delta_hours.
+        We set _last_tick backwards so the tick sees the simulated time gap.
+        
+        If simulated_hours=0, uses the gap from the most recent time_jump.
+
+        Returns the proactive result or silence indicator.
+        """
+        # Determine how far back to set _last_tick
+        hours_back = simulated_hours
+        if hours_back <= 0 and hasattr(self.agent, '_last_active'):
+            hours_back = (time.time() - self.agent._last_active) / 3600
+        if hours_back <= 0:
+            hours_back = 4  # Fallback: simulate 4h gap
+
+        # Set metabolism._last_tick to simulate N hours of silence
+        self.agent.metabolism._last_tick = time.time() - hours_back * 3600
+
+        result = await self.agent.proactive_tick()
+        snap = self.snapshot()
+        if result is not None:
+            return {
+                **snap,
+                "proactive_fired": True,
+                "proactive_reply": result.get('reply', ''),
+                "proactive_modality": result.get('modality', '文字'),
+                "proactive_monologue": result.get('monologue', ''),
+                "proactive_drive": result.get('drive_id', ''),
+            }
+        else:
+            return {
+                **snap,
+                "proactive_fired": False,
+                "proactive_reason": "no impulse or chose silence",
+            }
+
+    # ── Memory Injection ──
+
+    async def inject_memory(self, content: str, category: str = "preference") -> dict:
+        """Plant a memory into EverMemOS for later recall.
+
+        Uses the existing EverMemOS POST /memories API directly.
+        Does NOT modify core engine — just stores to existing memory service.
+
+        Args:
+            content: The memory content (e.g., "用户喜欢美式不加糖")
+            category: Memory category ("preference", "fact", "episode")
+        """
+        import uuid as _uuid
+        import time as _time
+
+        result = {"injected": False, "content": content, "category": category}
+
+        evermemos = self.agent.evermemos
+        if evermemos and evermemos.available and evermemos._client:
+            try:
+                now_iso = _time.strftime("%Y-%m-%dT%H:%M:%S+08:00", _time.localtime())
+                group_id = getattr(self.agent, '_group_id', 'demo')
+                resp = await evermemos._client.post("/memories", json={
+                    "content": f"[demo注入-{category}] {content}",
+                    "create_time": now_iso,
+                    "message_id": str(_uuid.uuid4()),
+                    "sender": getattr(self.agent, 'user_id', 'demo_user'),
+                    "sender_name": getattr(self.agent, 'user_name', '演示者'),
+                    "role": "user",
+                    "group_id": group_id,
+                    "flush": True,
+                })
+                if resp.status_code in (200, 202):
+                    result["injected"] = True
+                    print(f"  [demo] 💾 memory injected: {content[:50]} (HTTP {resp.status_code})")
+                else:
+                    result["error"] = f"HTTP {resp.status_code}: {resp.text[:100]}"
+                    print(f"  [demo] ❌ memory inject failed: HTTP {resp.status_code}")
+            except Exception as e:
+                result["error"] = str(e)
+                print(f"  [demo] ❌ memory inject failed: {e}")
+        else:
+            result["error"] = "EverMemOS not available"
+            print(f"  [demo] ⚠️ EverMemOS not available, memory not injected")
+
+        return result
 
     # ── State Injection ──
 
@@ -135,6 +229,10 @@ class DemoController:
 
     def snapshot(self) -> dict:
         """Return current engine state snapshot."""
+        hours_since = 0
+        if hasattr(self.agent, '_last_active') and self.agent._last_active > 0:
+            hours_since = (time.time() - self.agent._last_active) / 3600
+
         return {
             "drive_state": {
                 d: round(self.agent.agent.drive_state[d], 3)
@@ -151,4 +249,5 @@ class DemoController:
             "temperature": round(self.agent.metabolism.temperature(), 4),
             "total_frustration": round(self.agent.metabolism.total(), 3),
             "agent_age": self.agent.agent.age,
+            "hours_since_active": round(hours_since, 1),
         }

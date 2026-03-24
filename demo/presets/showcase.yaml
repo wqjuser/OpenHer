@@ -45,11 +45,12 @@ scenarios:
 
   about_to_snap:
     label: "💥 即将爆发"
-    description: "挫败值接近相变阈值"
+    description: "挫败值接近相变阈值，可触发主动消息"
     inject:
       frustration:
-        connection: 1.8
-        expression: 1.2
+        connection: 3.5
+        novelty: 2.5
+        expression: 2.0
 
   deeply_bonded:
     label: "💕 深度关系"
