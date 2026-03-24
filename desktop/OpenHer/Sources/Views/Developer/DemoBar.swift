@@ -211,6 +211,10 @@ struct DemoBar: View {
                         let isFlashing = flashDrives.contains(drive.key)
 
                         VStack(spacing: 1) {
+                            // Chinese label
+                            Text(drive.label)
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(Paper.faint)
                             // Drive value
                             HStack(spacing: 2) {
                                 Text(drive.icon)
@@ -231,7 +235,7 @@ struct DemoBar: View {
                             }
                             .frame(height: 3)
                             // Frustration value
-                            Text(String(format: "%.1f", frust))
+                            Text(String(format: "挫败 %.1f", frust))
                                 .font(.system(size: 8, design: .monospaced))
                                 .foregroundStyle(Paper.faint)
                         }
@@ -241,8 +245,9 @@ struct DemoBar: View {
 
                 // Temperature bar
                 HStack(spacing: 6) {
-                    Text("🌡️")
+                    Text("🌡️ 情绪温度")
                         .font(.system(size: 10))
+                        .foregroundStyle(Paper.faint)
                     let temp = appState.demoSnapshot?.temperature ?? 0
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
