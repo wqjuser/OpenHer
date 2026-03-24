@@ -150,6 +150,55 @@ struct DemoBar: View {
                 }
             }
 
+            // Row 4: Memory injection
+            HStack(spacing: 6) {
+                Text("🧠")
+                    .font(.system(size: 12))
+                Button("☕ 美式不加糖") {
+                    appState.demoInjectMemory(content: "用户喜欢喝美式咖啡,不加糖不加奶", category: "preference")
+                    showAction("🧠 记忆已注入: 美式不加糖")
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.purple.opacity(0.6))
+                )
+                .buttonStyle(.plain)
+
+                Button("🐱 养了猫叫团子") {
+                    appState.demoInjectMemory(content: "用户养了一只橘猫,名叫团子,3岁了", category: "fact")
+                    showAction("🧠 记忆已注入: 猫叫团子")
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.purple.opacity(0.6))
+                )
+                .buttonStyle(.plain)
+
+                Button("🏃 跑步爱好") {
+                    appState.demoInjectMemory(content: "用户每天早上跑5公里,最近在备战马拉松", category: "fact")
+                    showAction("🧠 记忆已注入: 跑步爱好")
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.purple.opacity(0.6))
+                )
+                .buttonStyle(.plain)
+
+                Spacer()
+            }
+
             Divider().opacity(0.3)
 
             // Row 4: Live drive status with deltas

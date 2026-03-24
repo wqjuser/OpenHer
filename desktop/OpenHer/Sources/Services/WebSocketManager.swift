@@ -106,6 +106,10 @@ final class WebSocketManager: ObservableObject {
         sendJSON(["type": "demo_presets"])
     }
 
+    func sendDemoInjectMemory(content: String, category: String = "preference") {
+        sendJSON(["type": "demo_inject_memory", "content": content, "category": category])
+    }
+
     func sendSwitchPersona(personaId: String, clientId: String) {
         sendJSON([
             "type": "switch_persona",

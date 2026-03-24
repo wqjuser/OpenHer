@@ -392,4 +392,8 @@ final class AppState: ObservableObject {
             clientId: getClientId()
         )
     }
+
+    func demoInjectMemory(content: String, category: String = "preference") {
+        wsManager.sendDemoInjectMemory(content: content, category: category)
+    }
 }
