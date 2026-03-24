@@ -27,11 +27,43 @@ from datetime import datetime
 import websockets
 
 # ─── 配置 ───
-WS_URL = "ws://localhost:8000/ws"
+WS_URL = "ws://localhost:8000/ws/chat"
 SERVER_LOG = ".data/server.log"
 HEALTH_URL = "http://localhost:8000/api/status"
 TIMEOUT_CHAT = 60       # 单条消息最大等待秒数
 TIMEOUT_PROACTIVE = 30  # 主动消息最大等待秒数
+
+
+def get_ui_client_id():
+    """Read the UI app's client_id from macOS UserDefaults.
+    The macOS client stores it as 'openher_client_id' in its app domain."""
+    import subprocess as _sp
+    try:
+        result = _sp.run(
+            ["defaults", "read", "com.openher.OpenHer", "openher_client_id"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    # Fallback: try to find it in any plist
+    try:
+        result = _sp.run(
+            ["grep", "-r", "openher_client_id", os.path.expanduser("~/Library/Preferences/")],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.splitlines():
+            # Binary plist match
+            if "openher_client_id" in line:
+                plist_file = line.split(":")[0]
+                r2 = _sp.run(["defaults", "read", plist_file.replace(".plist", ""), "openher_client_id"],
+                             capture_output=True, text=True, timeout=5)
+                if r2.returncode == 0 and r2.stdout.strip():
+                    return r2.stdout.strip()
+    except Exception:
+        pass
+    return None
 
 # ─── 全局状态 ───
 timeline = []
@@ -39,6 +71,7 @@ start_time = 0
 abort_flag = False
 log_thread = None
 current_act = ""
+CLIENT_ID = "demo_auto"  # Will be overwritten by get_ui_client_id() in main()
 
 
 # ═══════════════════════════════════════════
@@ -143,7 +176,7 @@ async def send_chat_and_wait(ws, message, persona_id):
         "type": "chat",
         "content": message,
         "persona_id": persona_id,
-        "client_id": "demo_auto",
+        "client_id": CLIENT_ID,
         "debug": True,
     })
 
@@ -196,7 +229,7 @@ async def switch_and_wait(ws, persona_id):
     await send(ws, {
         "type": "switch_persona",
         "persona_id": persona_id,
-        "client_id": "demo_auto",
+        "client_id": CLIENT_ID,
     })
 
     t0 = time.time()
@@ -409,7 +442,7 @@ async def act5(ws):
 # ═══════════════════════════════════════════
 
 async def main():
-    global start_time, abort_flag, log_thread
+    global start_time, abort_flag, log_thread, CLIENT_ID
 
     print()
     print("  ╔══════════════════════════════════════╗")
@@ -425,6 +458,15 @@ async def main():
         print("  ❌ 后端未运行！请先启动: source .venv/bin/activate && uvicorn main:app --port 8000")
         return
     print("\033[92mOK\033[0m")
+
+    # ── 读取 UI 的 client_id ──
+    CLIENT_ID = get_ui_client_id()
+    if CLIENT_ID:
+        print(f"  [检查] UI client_id: {CLIENT_ID[:12]}... \033[92m✅\033[0m")
+    else:
+        CLIENT_ID = "demo_auto"
+        print(f"  [检查] 未找到 UI client_id, 使用 fallback: {CLIENT_ID} \033[93m⚠️\033[0m")
+        print(f"         (消息可能不会同步到 UI 聊天窗口)")
 
     # ── 日志文件检查 ──
     if not os.path.exists(SERVER_LOG):

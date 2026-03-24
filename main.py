@@ -97,8 +97,8 @@ _proactive_task: Optional[asyncio.Task] = None
 _INSTANCE_ID = str(_uuid.uuid4())[:8]  # unique per server instance
 _PROACTIVE_INTERVAL = 300  # seconds between heartbeat sweeps
 
-# WebSocket connections: session_id → WebSocket (for proactive push)
-_ws_connections: dict[str, 'WebSocket'] = {}
+# WebSocket connections: session_id → set of WebSocket (supports multiple clients per session)
+_ws_connections: dict[str, set] = {}
 
 # Proactive config (loaded from memory_config.yaml in startup)
 _proactive_cfg: dict = {}
@@ -390,21 +390,26 @@ async def _deliver_proactive_msg(agent: ChatAgent, session_id: str, row: dict):
         return  # Already taken by another instance
 
     # ── Push to user via WebSocket ──
-    ws = _ws_connections.get(session_id)
-    if not ws:
+    ws_set = _ws_connections.get(session_id, set())
+    if not ws_set:
         # User offline: keep pending for next sweep
         state_store.outbox_mark_failed(uid, pid, tick_id)
         return
 
+    proactive_payload = {
+        "type": "proactive",
+        "content": reply,
+        "modality": modality,
+        "drive": row.get('drive_id', ''),
+        "persona": agent.persona.name,
+    }
     try:
-        await ws.send_json({
-            "type": "proactive",
-            "content": reply,
-            "modality": modality,
-            "drive": row.get('drive_id', ''),
-            "persona": agent.persona.name,
-        })
-        print(f"  [proactive] 📨 WS pushed: {reply[:40]}")
+        for _pw in list(ws_set):
+            try:
+                await _pw.send_json(proactive_payload)
+            except Exception:
+                ws_set.discard(_pw)
+        print(f"  [proactive] 📨 WS pushed to {len(ws_set)} client(s): {reply[:40]}")
         _proactive_metrics['ws_push_ok'] += 1
     except Exception as ws_err:
         # WS send failed: mark failed, do NOT proceed to delivered
@@ -973,15 +978,22 @@ async def websocket_chat(ws: WebSocket):
                 except Exception as e:
                     print(f"  [greeting] chat_log save error: {e}")
 
-        # Register WS connection for proactive push
-        _ws_connections[session_id] = ws
+        # Register WS connection for proactive push (supports multiple clients per session)
+        if session_id not in _ws_connections:
+            _ws_connections[session_id] = set()
+        _ws_connections[session_id].add(ws)
 
         # ── Process the merged message (same as original chat handling) ──
         stream_error = False
         _clean_reply_text = ""
         try:
             async def _ws_send(msg: dict):
-                await ws.send_json(msg)
+                # Broadcast to all WS clients for this session
+                for _peer in list(_ws_connections.get(session_id, set())):
+                    try:
+                        await _peer.send_json(msg)
+                    except Exception:
+                        _ws_connections.get(session_id, set()).discard(_peer)
 
             async def _on_feel_done():
                 await ws.send_json({
@@ -1231,7 +1243,7 @@ async def websocket_chat(ws: WebSocket):
                     old_session_id = session_id
                     if old_session_id:
                         if old_session_id in _ws_connections:
-                            del _ws_connections[old_session_id]
+                            _ws_connections[old_session_id].discard(ws)
                         remove_session(old_session_id)
                     try:
                         session_id, agent = get_or_create_session(
@@ -1240,7 +1252,9 @@ async def websocket_chat(ws: WebSocket):
                             msg.get("user_name"),
                             msg.get("client_id"),
                         )
-                        _ws_connections[session_id] = ws
+                        if session_id not in _ws_connections:
+                            _ws_connections[session_id] = set()
+                        _ws_connections[session_id].add(ws)
                         await ws.send_json({
                             "type": "persona_switched",
                             "session_id": session_id,
@@ -1390,7 +1404,9 @@ async def websocket_chat(ws: WebSocket):
     finally:
         # Deregister WS connection
         if session_id and session_id in _ws_connections:
-            del _ws_connections[session_id]
+            _ws_connections[session_id].discard(ws)
+            if not _ws_connections[session_id]:
+                del _ws_connections[session_id]
         if session_id:
             remove_session(session_id)
         print(f"[ws] 连接关闭: session={session_id}")
