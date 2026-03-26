@@ -53,17 +53,23 @@ final class AppState: ObservableObject {
 
     // MARK: - Developer Mode
     /// Developer mode: shows EngineDebugPanel with neural network visualization.
-    /// Stored in UserDefaults (not @AppStorage, per review feedback).
+    /// Persisted in UserDefaults so it survives app restarts.
     @Published var developerMode: Bool = false {
         didSet { UserDefaults.standard.set(developerMode, forKey: "developerMode") }
     }
     @Published var engineDebug: EngineDebugState = EngineDebugState()
 
     // MARK: - Demo Mode
-    @Published var demoMode: Bool = false
+    /// Persisted in UserDefaults so it survives app restarts.
+    @Published var demoMode: Bool = false {
+        didSet { UserDefaults.standard.set(demoMode, forKey: "demoMode") }
+    }
     @Published var demoPresets: [DemoPreset] = []
     @Published var demoScenarios: [String: DemoScenario] = [:]
     @Published var demoSnapshot: DemoEngineSnapshot? = nil
+    @Published var demoActMode: Int = 1  // 1=personas, 2=memory, 3=emotion, 4=time
+    @Published var demoTitle: String = ""  // Big banner title set by demo scripts
+    @Published var demoInjectedMemoryKeys: [String] = []  // Memory capsule keys to light up
 
     // MARK: - Image Cache (shared between PersonaCard → AwakeningView)
     /// Front images cached after first download, keyed by personaId.
@@ -84,10 +90,11 @@ final class AppState: ObservableObject {
         // Read persisted URL before lazy services initialize
         let savedURL = UserDefaults.standard.string(forKey: "serverURL") ?? "http://localhost:8000"
         serverURL = savedURL
+        // Restore persisted mode settings
         developerMode = UserDefaults.standard.bool(forKey: "developerMode")
-
+        demoMode = UserDefaults.standard.bool(forKey: "demoMode")
         // In non-developer mode, attempt to restore last conversation
-        let savedPersonaId = developerMode ? nil : UserDefaults.standard.string(forKey: "selectedPersonaId")
+        let savedPersonaId = UserDefaults.standard.string(forKey: "selectedPersonaId")
 
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 300_000_000) // 0.3s
@@ -99,15 +106,18 @@ final class AppState: ObservableObject {
                 loadPreviewData()
             }
 
-            if let personaId = savedPersonaId,
+            if developerMode {
+                // Developer mode: always start at discovery
+                appPhase = .discovery
+            } else if let personaId = savedPersonaId,
                personas.contains(where: { $0.personaId == personaId }) {
-                // Non-developer mode: restore last conversation directly
+                // Normal mode: restore last conversation directly
                 selectedPersonaId = personaId
                 appPhase = .conversation
                 await loadHistory(for: personaId)
                 wsManager.connect()
             } else {
-                // Developer mode or no saved persona: start at discovery
+                // No saved persona: start at discovery
                 appPhase = .discovery
             }
         }
@@ -395,5 +405,11 @@ final class AppState: ObservableObject {
 
     func demoInjectMemory(content: String, category: String = "preference") {
         wsManager.sendDemoInjectMemory(content: content, category: category)
+    }
+
+    /// Fetch current engine state without changing anything.
+    /// Sends demo_inject with empty overrides → backend returns demo_state.
+    func demoFetchState() {
+        wsManager.sendDemoInject(overrides: [:])
     }
 }

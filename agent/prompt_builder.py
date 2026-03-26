@@ -42,6 +42,7 @@ class PromptBuilderMixin:
                 identity += f"，{persona.gender}"
             identity += "。"
 
+
         # Signal injection
         signal_injection = self.agent.to_prompt_injection_from_signals(
             signals,

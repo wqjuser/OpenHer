@@ -204,14 +204,15 @@ class ChatAgent(PromptBuilderMixin, EverMemosMixin, ModalityRetryMixin, Proactiv
     # ── Prompt building, memory blending, crystallization ──
     # See agent/prompt_builder.py (PromptBuilderMixin)
 
-    async def chat(self, user_message: str, on_feel_done=None) -> dict:
+    async def chat(self, user_message: str, on_feel_done=None, is_proactive: bool = False) -> dict:
         """
         Process a user message through the full Genome v10 lifecycle.
         Returns only the reply (monologue is stored internally).
         on_feel_done: optional async callback invoked when prompt is ready (before LLM call).
+        is_proactive: if True, this is a self-driven message — skip user memory/history storage.
         """
         async with self._turn_lock:
-            return await self._chat_inner(user_message, on_feel_done=on_feel_done)
+            return await self._chat_inner(user_message, on_feel_done=on_feel_done, is_proactive=is_proactive)
 
     async def _run_task_skills(self, user_message: str) -> str:
         """Step -1: Run task skill ReAct loop before persona engine.
@@ -233,7 +234,7 @@ class ChatAgent(PromptBuilderMixin, EverMemosMixin, ModalityRetryMixin, Proactiv
             print(f"  [skill] ⚠ ReAct loop failed ({e}), fallback to persona engine")
         return user_message
 
-    async def _chat_inner(self, user_message: str, on_feel_done=None) -> dict:
+    async def _chat_inner(self, user_message: str, on_feel_done=None, is_proactive: bool = False) -> dict:
         """Inner chat implementation (called under lock)."""
         # ── Step -1: Task skill ReAct loop (before persona engine) ──
         user_message = await self._run_task_skills(user_message)
@@ -422,7 +423,8 @@ class ChatAgent(PromptBuilderMixin, EverMemosMixin, ModalityRetryMixin, Proactiv
         self.agent.step(context, reward=clamped_reward, drive_satisfaction=drive_satisfaction)
         self._last_drive_satisfaction = drive_satisfaction
         # ── Update state ──
-        self.history.append(ChatMessage(role="user", content=user_message))
+        if not is_proactive:
+            self.history.append(ChatMessage(role="user", content=user_message))
         if not getattr(self, '_fallback_history_added', False):
             self.history.append(ChatMessage(role="assistant", content=reply))
         self._fallback_history_added = False
@@ -439,8 +441,8 @@ class ChatAgent(PromptBuilderMixin, EverMemosMixin, ModalityRetryMixin, Proactiv
         }
         self._last_modality = modality
 
-        # Store facts in keyword memory (if available)
-        if self.memory_store:
+        # Store facts in keyword memory (skip for proactive — not real user input)
+        if self.memory_store and not is_proactive:
             self.memory_store.add(
                 user_id=self.user_id,
                 persona_id=self.persona.persona_id,
@@ -455,10 +457,12 @@ class ChatAgent(PromptBuilderMixin, EverMemosMixin, ModalityRetryMixin, Proactiv
         print(f"  [drive_sat] {sat_str or 'none'}")
 
         # ── Step 11: EverMemOS store_turn (non-blocking background task) ──
-        self._evermemos_store_bg(user_message, reply)
+        if not is_proactive:
+            self._evermemos_store_bg(user_message, reply)
 
         # ── Step 12: Fire async search for NEXT turn's injection ──
-        self._evermemos_search_bg(user_message)
+        if not is_proactive:
+            self._evermemos_search_bg(user_message)
 
         result = {'reply': reply, 'modality': modality}
         if skill_result and skill_result.success:
@@ -823,8 +827,9 @@ class ChatAgent(PromptBuilderMixin, EverMemosMixin, ModalityRetryMixin, Proactiv
             "monologue": self._last_action.get("monologue", "") if self._last_action else "",
             "style_recall": self.style_memory.last_recall_info(),
             "relationship": {
-                k: round(v, 4) if isinstance(v, (int, float)) else v
-                for k, v in self._relationship_ema.items()
+                "depth":   round(self._relationship_ema.get("relationship_depth", 0.0), 4),
+                "trust":   round(self._relationship_ema.get("trust_level", 0.0), 4),
+                "valence": round(self._relationship_ema.get("emotional_valence", 0.0), 4),
             },
             "reward": round(self._last_reward, 4),
             "age": self.agent.age,
