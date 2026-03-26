@@ -76,6 +76,25 @@ class ChatLogStore:
         )
         self._conn.commit()
 
+    def save_message(
+        self,
+        client_id: str,
+        persona_id: str,
+        role: str,
+        content: str,
+        modality: str = "文字",
+        image_url: str | None = None,
+    ) -> None:
+        """Save a single message (e.g. additional segment from split_reply)."""
+        self._conn.execute(
+            """
+            INSERT INTO chat_messages (client_id, persona_id, role, content, modality, image_url, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (client_id, persona_id, role, content, modality, image_url, time.time()),
+        )
+        self._conn.commit()
+
     def load_messages(
         self,
         client_id: str,

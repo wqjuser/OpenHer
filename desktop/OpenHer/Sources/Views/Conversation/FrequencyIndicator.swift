@@ -48,48 +48,52 @@ struct FrequencyIndicator: View {
             let centerY = height * 0.5
             let lineX: CGFloat = 12
 
-            // Hairline vertical stroke
-            Path { path in
-                path.move(to: CGPoint(x: lineX, y: 0))
-                path.addLine(to: CGPoint(x: lineX, y: height))
+            if height > 1 {
+                // Hairline vertical stroke
+                Path { path in
+                    path.move(to: CGPoint(x: lineX, y: 0))
+                    path.addLine(to: CGPoint(x: lineX, y: height))
+                }
+                .stroke(Paper.faint.opacity(0.35), lineWidth: 0.5)
+
+                // Glow trail from center to dot position
+                Path { path in
+                    path.move(to: CGPoint(x: lineX, y: centerY))
+                    path.addLine(to: CGPoint(x: lineX, y: dotY))
+                }
+                .stroke(
+                    dotColor.opacity(0.3),
+                    style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
+                )
+                .animation(.easeInOut(duration: 1.2), value: dotRatio)
+
+                // Crystal pulse ring
+                Circle()
+                    .stroke(Paper.coral.opacity(crystalOpacity * 0.8), lineWidth: 1.5)
+                    .frame(width: 20, height: 20)
+                    .scaleEffect(crystalRingScale)
+                    .position(x: lineX, y: dotY)
+
+                // Inner crystal glow
+                Circle()
+                    .fill(Paper.coral.opacity(crystalOpacity * 0.4))
+                    .frame(width: 12, height: 12)
+                    .scaleEffect(crystalRingScale * 0.7)
+                    .position(x: lineX, y: dotY)
+
+                // Coral dot — breathing gently
+                Circle()
+                    .fill(dotColor)
+                    .frame(width: 6, height: 6)
+                    .scaleEffect(breathPhase ? 1.15 : 1.0)
+                    .shadow(color: dotColor.opacity(0.5), radius: breathPhase ? 6 : 2)
+                    .position(x: lineX, y: dotY)
+                    .animation(.interpolatingSpring(stiffness: 25, damping: 7), value: dotRatio)
             }
-            .stroke(Paper.faint.opacity(0.35), lineWidth: 0.5)
-
-            // Glow trail from center to dot position
-            Path { path in
-                path.move(to: CGPoint(x: lineX, y: centerY))
-                path.addLine(to: CGPoint(x: lineX, y: dotY))
-            }
-            .stroke(
-                dotColor.opacity(0.3),
-                style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
-            )
-            .animation(.easeInOut(duration: 1.2), value: dotRatio)
-
-            // Crystal pulse ring
-            Circle()
-                .stroke(Paper.coral.opacity(crystalOpacity * 0.8), lineWidth: 1.5)
-                .frame(width: 20, height: 20)
-                .scaleEffect(crystalRingScale)
-                .position(x: lineX, y: dotY)
-
-            // Inner crystal glow
-            Circle()
-                .fill(Paper.coral.opacity(crystalOpacity * 0.4))
-                .frame(width: 12, height: 12)
-                .scaleEffect(crystalRingScale * 0.7)
-                .position(x: lineX, y: dotY)
-
-            // Coral dot — breathing gently
-            Circle()
-                .fill(dotColor)
-                .frame(width: 6, height: 6)
-                .scaleEffect(breathPhase ? 1.15 : 1.0)
-                .shadow(color: dotColor.opacity(0.5), radius: breathPhase ? 6 : 2)
-                .position(x: lineX, y: dotY)
-                .animation(.interpolatingSpring(stiffness: 25, damping: 7), value: dotRatio)
         }
         .frame(width: 24)
+        .clipped()
+        .drawingGroup()  // Rasterize to Metal layer — prevents NSRegion crash on resize
         .onAppear {
             withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
                 breathPhase = true

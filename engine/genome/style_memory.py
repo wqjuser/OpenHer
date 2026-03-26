@@ -132,6 +132,24 @@ class ContinuousStyleMemory:
         conn.commit()
         conn.close()
 
+    def _auto_import_seeds(self):
+        """Auto-import all seeds from seeds.bin on first boot (no manual step needed)."""
+        import gzip
+        seeds_bin = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "persona", "seeds.bin"
+        )
+        if not os.path.isfile(seeds_bin):
+            return
+        try:
+            with open(seeds_bin, "rb") as f:
+                data = json.loads(gzip.decompress(f.read()).decode("utf-8"))
+            for pid, seeds in data.items():
+                ContinuousStyleMemory.save_genesis_to_db(pid, seeds, self._state_db_path)
+            print(f"[genome] 🧬 auto-imported {len(data)} personas from seeds.bin")
+        except Exception as e:
+            print(f"[genome] ⚠️ auto-import failed: {e}")
+
     def _load(self):
         """Load innate genes + learned experience into unified pool."""
         self._pool = []
@@ -143,6 +161,16 @@ class ContinuousStyleMemory:
             (self._persona_id,)
         ).fetchone()
         conn.close()
+
+        # Auto-import from seeds.bin if table is empty (first boot after clone)
+        if not row:
+            self._auto_import_seeds()
+            conn = sqlite3.connect(self._state_db_path)
+            row = conn.execute(
+                "SELECT seeds FROM genesis_seed WHERE persona_id = ?",
+                (self._persona_id,)
+            ).fetchone()
+            conn.close()
 
         if row:
             genesis = json.loads(row[0])

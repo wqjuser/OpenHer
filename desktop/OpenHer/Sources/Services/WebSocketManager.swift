@@ -27,8 +27,16 @@ final class WebSocketManager: ObservableObject {
         webSocketTask?.resume()
 
         appState.isConnected = true
+        
+        // Send handshake with client_id so backend can route demo inject commands
+        let handshake: [String: Any] = [
+            "type": "handshake",
+            "client_id": appState.getClientId(),
+        ]
+        sendJSON(handshake)
+        
         listenForMessages()
-        print("[WS] Connected to \(url)")
+        print("[WS] Connected to \(url) with client_id: \(appState.getClientId().prefix(12))...")
     }
 
     func disconnect() {
@@ -55,8 +63,8 @@ final class WebSocketManager: ObservableObject {
             payload["greeting"] = greetingMsg.content
         }
 
-        // Developer mode: request full engine debug data
-        if appState?.developerMode == true {
+        // Developer mode or Demo mode: request full engine debug data
+        if appState?.developerMode == true || appState?.demoMode == true {
             payload["debug"] = true
         }
 
@@ -84,6 +92,52 @@ final class WebSocketManager: ObservableObject {
         webSocketTask?.send(.string(text)) { error in
             if let error = error {
                 print("[WS] Typing indicator send error: \(error)")
+            }
+        }
+    }
+
+    // MARK: - Demo Mode
+
+    func sendDemoTimeJump(hours: Double) {
+        sendJSON(["type": "demo_time_jump", "hours": hours])
+    }
+
+    func sendDemoInject(overrides: [String: Any]) {
+        sendJSON(["type": "demo_inject", "overrides": overrides])
+    }
+
+    func sendDemoScenario(scenarioId: String) {
+        sendJSON(["type": "demo_scenario", "scenario_id": scenarioId])
+    }
+
+    func sendDemoPresets() {
+        sendJSON(["type": "demo_presets"])
+    }
+
+    func sendDemoInjectMemory(content: String, category: String = "preference") {
+        sendJSON([
+            "type": "demo_inject_memory",
+            "content": content,
+            "category": category,
+            "persona_id": appState?.selectedPersonaId ?? "",
+            "client_id": appState?.getClientId() ?? "",
+        ])
+    }
+
+    func sendSwitchPersona(personaId: String, clientId: String) {
+        sendJSON([
+            "type": "switch_persona",
+            "persona_id": personaId,
+            "client_id": clientId,
+        ])
+    }
+
+    private func sendJSON(_ payload: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let text = String(data: data, encoding: .utf8) else { return }
+        webSocketTask?.send(.string(text)) { error in
+            if let error = error {
+                print("[WS] Send error: \(error)")
             }
         }
     }
@@ -121,10 +175,86 @@ final class WebSocketManager: ObservableObject {
               let type = json["type"] as? String else { return }
 
         switch type {
+        // ── Demo Remote Control ──
+        case "demo_inject":
+            let action = json["action"] as? String ?? ""
+            print("[demo_inject] received action: \(action)")
+            DispatchQueue.main.async { [weak self] in
+                guard let appState = self?.appState else { return }
+                switch action {
+                case "send_chat":
+                    let content = json["content"] as? String ?? ""
+                    if !content.isEmpty {
+                        appState.sendMessage(content)
+                        // Immediately flush — don't wait for 8s merge buffer
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            appState.flushMergedMessages()
+                        }
+                    }
+                case "switch_persona":
+                    let personaId = json["persona_id"] as? String ?? ""
+                    if !personaId.isEmpty {
+                        // Reset session so backend creates fresh agent for new persona
+                        // Do NOT disconnect/reconnect WS — it causes inject to hit dead connections
+                        self?.sessionId = nil
+                        appState.selectPersona(personaId)
+                        print("[demo_inject] switched persona to \(personaId), sessionId reset")
+                    }
+                case "scenario":
+                    let scenarioId = json["scenario_id"] as? String ?? ""
+                    if !scenarioId.isEmpty {
+                        self?.sendDemoScenario(scenarioId: scenarioId)
+                    }
+                case "time_jump":
+                    let hours = json["hours"] as? Double ?? 0
+                    if hours > 0 {
+                        self?.sendDemoTimeJump(hours: hours)
+                    }
+                case "inject_memory":
+                    let content = json["content"] as? String ?? ""
+                    let category = json["category"] as? String ?? "preference"
+                    if !content.isEmpty {
+                        self?.sendDemoInjectMemory(content: content, category: category)
+                        // Push to AppState so capsules can light up
+                        appState.demoInjectedMemoryKeys.append(content)
+                        print("[demo_inject] memory capsule → \(content)")
+                    }
+                case "switch_tab":
+                    let tab = json["tab"] as? Int ?? 1
+                    appState.demoActMode = max(1, min(4, tab))
+                    print("[demo_inject] switched tab to \(tab)")
+                case "set_title":
+                    let title = json["content"] as? String ?? ""
+                    appState.demoTitle = title
+                    print("[demo_inject] title → \(title)")
+                default:
+                    print("[demo_inject] unknown action: \(action)")
+                }
+            }
+
         case "chat_start":
             sessionId = json["session_id"] as? String
             streamingContent = ""
             appState?.isTyping = true
+
+            // If this chat_start was sent by an external source (demo script),
+            // add the user message bubble so it shows in the UI chat
+            if let userContent = json["user_content"] as? String, !userContent.isEmpty {
+                let alreadyHas = appState?.messages.last(where: { $0.role == .user })?.content == userContent
+                if !alreadyHas {
+                    let msg = ChatMessage(
+                        id: UUID().uuidString,
+                        role: .user,
+                        content: userContent,
+                        modality: "文字",
+                        timestamp: Date(),
+                        sendStatus: .sent
+                    )
+                    DispatchQueue.main.async { [weak self] in
+                        self?.appState?.messages.append(msg)
+                    }
+                }
+            }
 
         case "chat_chunk":
             if let chunk = json["content"] as? String {
@@ -188,6 +318,34 @@ final class WebSocketManager: ObservableObject {
                     print("[debug]  signals: dir=\(sigs["directness"] ?? "?") vul=\(sigs["vulnerability"] ?? "?") play=\(sigs["playfulness"] ?? "?") warm=\(sigs["warmth"] ?? "?")")
                     print("[debug]  drives:  conn=\(drives["connection"] ?? "?") nov=\(drives["novelty"] ?? "?") expr=\(drives["expression"] ?? "?")")
                     print("[debug]  monologue: \(mono)")
+
+                    // ── Demo: sync demoSnapshot from chat debug data ──
+                    if appState?.demoMode == true {
+                        let frust = debugJson["frustration"] as? [String: Any] ?? [:]
+                        let totalF = debugJson["total_frustration"]
+                        print("[demo] frustration keys=\(frust.keys.sorted()) total=\(totalF ?? "nil")")
+                        if let snapshot = DemoEngineSnapshot.from(debugJson) {
+                            appState?.demoSnapshot = snapshot
+                            print("[demo] ✅ demoSnapshot updated: temp=\(snapshot.temperature) frust=\(snapshot.totalFrustration)")
+                        } else {
+                            // Fallback: build minimal snapshot from main json fields
+                            let driveState = json["drive_state"] as? [String: Double] ?? [:]
+                            let frustScalar = json["frustration"] as? Double ?? 0
+                            let tempVal = json["temperature"] as? Double ?? 0
+                            if !driveState.isEmpty {
+                                appState?.demoSnapshot = DemoEngineSnapshot(
+                                    driveState: driveState,
+                                    driveBaseline: json["drive_baseline"] as? [String: Double] ?? [:],
+                                    frustration: [:],
+                                    temperature: tempVal,
+                                    totalFrustration: frustScalar
+                                )
+                                print("[demo] ⚠️ demoSnapshot fallback: temp=\(tempVal) frust=\(frustScalar)")
+                            } else {
+                                print("[demo] ❌ demoSnapshot parse failed, debugJson keys: \(debugJson.keys.sorted())")
+                            }
+                        }
+                    }
                 }
 
                 print("[mood] valence=\(valence) reward=\(reward) temp=\(temp) → \(newMood)")
@@ -235,6 +393,38 @@ final class WebSocketManager: ObservableObject {
                     appState?.messages[idx].audioData = audioData
                 }
             }
+
+        case "persona_switched":
+            let personaName = json["persona"] as? String ?? "Unknown"
+            sessionId = json["session_id"] as? String
+            print("[WS] Persona switched to: \(personaName)")
+
+        case "demo_state":
+            if let snapshot = DemoEngineSnapshot.from(json) {
+                appState?.demoSnapshot = snapshot
+                print("[demo] state updated: temp=\(snapshot.temperature), frust=\(snapshot.totalFrustration)")
+            }
+
+        case "demo_presets":
+            if let presetsRaw = json["presets"] as? [[String: String]] {
+                appState?.demoPresets = presetsRaw.compactMap { dict in
+                    guard let label = dict["label"], let message = dict["message"] else { return nil }
+                    return DemoPreset(label: label, message: message)
+                }
+            }
+            if let scenariosRaw = json["scenarios"] as? [String: [String: Any]] {
+                var scenarios: [String: DemoScenario] = [:]
+                for (key, val) in scenariosRaw {
+                    scenarios[key] = DemoScenario(
+                        label: val["label"] as? String ?? key,
+                        description: val["description"] as? String ?? "",
+                        timeJumpHours: val["time_jump_hours"] as? Double,
+                        inject: val["inject"] as? [String: [String: Double]]
+                    )
+                }
+                appState?.demoScenarios = scenarios
+            }
+            print("[demo] loaded \(appState?.demoPresets.count ?? 0) presets, \(appState?.demoScenarios.count ?? 0) scenarios")
 
         default:
             break

@@ -4,7 +4,7 @@ import Combine
 
 /// Force the app to appear as a regular GUI app + manage window aspect ratio.
 @MainActor
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var phaseSub: AnyCancellable?
 
     /// Aspect ratio for Discovery / Awakening (520:960 ≈ 13:24)
@@ -37,6 +37,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             $0.className.contains("AppKit") || $0.isKeyWindow
         }) ?? NSApp.windows.first else { return }
 
+        // Prevent NSRegion crash on macOS 26 beta: set explicit minSize
+        window.minSize = NSSize(width: 320, height: 480)
+        window.delegate = self
+
         switch phase {
         case .loading, .discovery, .awakening:
             // Lock aspect ratio — user can resize but proportion stays fixed
@@ -45,6 +49,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Unlock — free resize
             window.contentAspectRatio = NSSize.zero
         }
+    }
+
+    // MARK: - NSWindowDelegate (resize guard for macOS 26 beta)
+
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        // Clamp to minimum to prevent NSRegion assertion failure
+        let minW: CGFloat = 320
+        let minH: CGFloat = 480
+        return NSSize(
+            width: max(frameSize.width, minW),
+            height: max(frameSize.height, minH)
+        )
     }
 }
 
@@ -95,5 +111,43 @@ struct OpenHerApp: App {
         .windowResizability(.contentSize)
         .defaultSize(width: 1100, height: 680)
         .defaultPosition(.trailing)
+
+        // Demo Bar — operator control panel (buttons only)
+        Window("Demo Controls", id: "demo-bar") {
+            DemoBar()
+                .environmentObject(appState)
+                .frame(minWidth: 420, maxWidth: 600)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+        .defaultSize(width: 480, height: 220)
+        .defaultPosition(.bottom)
+
+        // Demo Showcase — audience-facing visualization panel
+        Window("OpenHer · Live", id: "demo-showcase") {
+            DemoShowcasePanel()
+                .environmentObject(appState)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+        .defaultSize(width: 420, height: 640)
+        .defaultPosition(.trailing)
+
+        // ⌘D toggles Demo Bar · ⌘S toggles Showcase
+        .commands {
+            CommandMenu("Demo") {
+                Button(appState.demoMode ? "Hide Demo Controls" : "Show Demo Controls") {
+                    appState.demoMode.toggle()
+                }
+                .keyboardShortcut("d", modifiers: .command)
+
+                Divider()
+
+                Button("Show Showcase Panel") {
+                    // Open via environment openWindow in SwiftUI
+                }
+                .keyboardShortcut("s", modifiers: .command)
+            }
+        }
     }
 }

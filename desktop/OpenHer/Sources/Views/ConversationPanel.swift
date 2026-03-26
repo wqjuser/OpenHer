@@ -14,15 +14,13 @@ struct ConversationPanel: View {
 
     var body: some View {
         ZStack {
-            // Chat background image
-            GeometryReader { geo in
+            // Chat background image — use .background to avoid GeometryReader layout loops on resize
+            Group {
                 if let url = Bundle.module.url(forResource: "chat_bg", withExtension: "png"),
                    let nsImage = NSImage(contentsOf: url) {
                     Image(nsImage: nsImage)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .clipped()
                 } else {
                     Paper.background
                 }
