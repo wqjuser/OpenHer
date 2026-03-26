@@ -500,7 +500,6 @@ genome_seed:
 
 - **[Her](https://zh.wikipedia.org/wiki/%E9%9B%B2%E7%AB%AF%E6%83%85%E4%BA%BA)** (2013) — 启发这一切的那部电影
 - **[EverMemOS](https://evermind.ai)** — 长期记忆基础设施
-- **Memory Genesis Competition 2026** — 推动开源发布的契机
 
 ---
 

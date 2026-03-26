@@ -432,7 +432,7 @@ Please read our **[Contributing Guide](CONTRIBUTING.md)** for code style, testin
 
 - **[Her](https://en.wikipedia.org/wiki/Her_(film))** (2013) — The vision that started it all
 - **[EverMemOS](https://evermind.ai)** — Long-term memory infrastructure
-- **Memory Genesis Competition 2026** — Catalyst for open-source release
+
 
 ---
 
