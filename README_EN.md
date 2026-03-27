@@ -245,13 +245,20 @@ OpenHer works with multiple LLMs — but not all models are created equal. Perso
 ```bash
 git clone https://github.com/kellyvv/OpenHer.git
 cd OpenHer
+```
 
-# One-click setup (recommended)
+**One-click setup (recommended):**
+
+```bash
 bash setup.sh
+```
 
-# Or manually
+**Manual setup:**
+
+```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
 ```
 
 ### 2. Configure Environment
@@ -264,7 +271,7 @@ Set at least one LLM provider API key in `.env`:
 
 | Provider | Environment Variable | Model Example |
 |----------|---------------------|---------------|
-| **Gemini** | `GEMINI_API_KEY` | gemini-2.0-flash-lite |
+| **Gemini** | `GEMINI_API_KEY` | gemini-3.1-flash-lite-preview |
 | **Claude** | `ANTHROPIC_API_KEY` | claude-haiku-4-5 |
 | **Qwen** | `DASHSCOPE_API_KEY` | qwen3-max |
 | **OpenAI** | `OPENAI_API_KEY` | gpt-5.4-mini |
@@ -277,7 +284,7 @@ Then set your default provider:
 
 ```bash
 DEFAULT_PROVIDER=gemini           # or claude, dashscope, openai, minimax, moonshot, stepfun, ollama
-DEFAULT_MODEL=gemini-2.0-flash-lite
+DEFAULT_MODEL=gemini-3.1-flash-lite-preview
 ```
 
 ### 3. Start the Backend

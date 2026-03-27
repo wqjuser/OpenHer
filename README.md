@@ -268,13 +268,20 @@ OpenHer 支持多种大模型——但不是所有模型都能胜任人格涌现
 ```bash
 git clone https://github.com/kellyvv/OpenHer.git
 cd OpenHer
+```
 
-# 一键安装（推荐）
+**一键安装（推荐）：**
+
+```bash
 bash setup.sh
+```
 
-# 或手动安装
+**手动安装：**
+
+```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
 ```
 
 ### 二、配置环境变量
@@ -287,7 +294,7 @@ cp .env.example .env
 
 | 服务商 | 环境变量 | 模型示例 |
 |--------|---------|---------|
-| **Gemini** | `GEMINI_API_KEY` | gemini-2.0-flash-lite |
+| **Gemini** | `GEMINI_API_KEY` | gemini-3.1-flash-lite-preview |
 | **Claude** | `ANTHROPIC_API_KEY` | claude-haiku-4-5 |
 | **通义千问** | `DASHSCOPE_API_KEY` | qwen3-max |
 | **OpenAI** | `OPENAI_API_KEY` | gpt-5.4-mini |
@@ -300,7 +307,7 @@ cp .env.example .env
 
 ```bash
 DEFAULT_PROVIDER=gemini           # 或 claude, dashscope, openai, minimax, moonshot, stepfun, ollama
-DEFAULT_MODEL=gemini-2.0-flash-lite
+DEFAULT_MODEL=gemini-3.1-flash-lite-preview
 ```
 
 ### 三、启动后端
