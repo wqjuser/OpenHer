@@ -32,3 +32,4 @@ web/dist/
 vendor/*
 !vendor/EverMemOS
 docs/assets/demo.mp4
+demo/results/

@@ -246,7 +246,11 @@ OpenHer works with multiple LLMs — but not all models are created equal. Perso
 git clone https://github.com/kellyvv/OpenHer.git
 cd OpenHer
 
-python -m venv .venv && source .venv/bin/activate
+# One-click setup (recommended)
+bash setup.sh
+
+# Or manually
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 

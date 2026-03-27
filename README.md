@@ -269,7 +269,11 @@ OpenHer 支持多种大模型——但不是所有模型都能胜任人格涌现
 git clone https://github.com/kellyvv/OpenHer.git
 cd OpenHer
 
-python -m venv .venv && source .venv/bin/activate
+# 一键安装（推荐）
+bash setup.sh
+
+# 或手动安装
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
