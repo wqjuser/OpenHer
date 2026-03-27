@@ -12,8 +12,27 @@ cd "$(dirname "$0")"
 PORT=${PORT:-8000}
 LOG_FILE=".data/server.log"
 
-# Activate venv
+# Activate venv (with path validation)
 if [ -d ".venv" ]; then
+    # Check if venv python shebang points to a valid interpreter
+    VENV_PYTHON=".venv/bin/python"
+    if [ -f "$VENV_PYTHON" ]; then
+        SHEBANG_PATH=$(head -1 "$VENV_PYTHON" | sed 's/^#!//')
+        if [ ! -x "$SHEBANG_PATH" ]; then
+            echo "⚠️  虚拟环境路径已失效（项目被移动过？）"
+            echo "   尝试修复..."
+            if python3 -m venv --upgrade .venv 2>/dev/null; then
+                echo "✅ 虚拟环境已修复 (upgrade)"
+            else
+                echo "♻️  修复失败，正在重建虚拟环境..."
+                rm -rf .venv
+                python3 -m venv .venv
+                source .venv/bin/activate
+                pip install -r requirements.txt -q
+                echo "✅ 虚拟环境已重建"
+            fi
+        fi
+    fi
     source .venv/bin/activate
 fi
 

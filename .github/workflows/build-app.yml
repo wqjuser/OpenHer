@@ -1,0 +1,101 @@
+name: Build macOS App
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with Swift (Release)
+        working-directory: desktop/OpenHer
+        run: swift build -c release
+
+      - name: Assemble .app bundle
+        working-directory: desktop/OpenHer
+        run: |
+          BUILD_DIR=".build/release"
+          APP_DIR="$BUILD_DIR/OpenHer.app"
+          CONTENTS="$APP_DIR/Contents"
+          MACOS_DIR="$CONTENTS/MacOS"
+          RESOURCES_DIR="$CONTENTS/Resources"
+
+          mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
+
+          # Binary
+          cp "$BUILD_DIR/OpenHer" "$MACOS_DIR/OpenHer"
+
+          # Icon
+          if [ -f "Sources/Resources/AppIcon.icns" ]; then
+            cp "Sources/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
+          fi
+
+          # SPM resource bundles
+          for bundle in "$BUILD_DIR"/*.bundle; do
+            if [ -d "$bundle" ]; then
+              cp -R "$bundle" "$MACOS_DIR/"
+            fi
+          done
+
+          # Info.plist
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          cat > "$CONTENTS/Info.plist" << PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>OpenHer</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.openher.app</string>
+            <key>CFBundleName</key>
+            <string>OpenHer</string>
+            <key>CFBundleDisplayName</key>
+            <string>OpenHer</string>
+            <key>CFBundleVersion</key>
+            <string>${TAG_VERSION}</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${TAG_VERSION}</string>
+            <key>CFBundleIconFile</key>
+            <string>AppIcon</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>14.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          # Ad-hoc code signing (avoids Gatekeeper quarantine block)
+          codesign --force --deep --sign - "$APP_DIR"
+
+          echo "✅ OpenHer.app assembled and signed (ad-hoc)"
+
+      - name: Create zip
+        working-directory: desktop/OpenHer
+        run: |
+          cd .build/release
+          ditto -c -k --keepParent OpenHer.app OpenHer.app.zip
+          echo "✅ OpenHer.app.zip created ($(du -h OpenHer.app.zip | cut -f1))"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: desktop/OpenHer/.build/release/OpenHer.app.zip
+          body: |
+            ## OpenHer macOS 客户端
+
+            下载 `OpenHer.app.zip`，解压后双击打开。
+
+            > ⚠️ 首次打开 macOS 可能会提示"无法验证开发者"，请右键 → 打开 → 信任。
+
+            需要后端服务配合使用，请参考 [快速开始](https://github.com/kellyvv/OpenHer#-快速开始)。
+          generate_release_notes: true

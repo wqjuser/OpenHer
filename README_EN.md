@@ -32,6 +32,11 @@
 </table>
 
 *They are waiting for you to awaken them.*
+
+<br>
+
+[![Demo](https://img.youtube.com/vi/AE7bspVHEI8/maxresdefault.jpg)](https://www.youtube.com/watch?v=AE7bspVHEI8)
+
 </div>
 
 ---
@@ -165,6 +170,11 @@ An extensible skill framework that gives her real-world capabilities. Weather, s
 
 <div align="center">
 <img src="docs/assets/architecture.png" alt="OpenHer Persona Engine Architecture" width="90%">
+
+<br>
+
+[![How It Works Video](https://img.youtube.com/vi/9X8CnuJpc9M/maxresdefault.jpg)](https://www.youtube.com/watch?v=9X8CnuJpc9M)
+
 </div>
 
 **The core insight:** no line of prompt describes her personality. The Critic perceives 8-dimensional context, 5 drives metabolize with real time, and the Genome Engine's random neural network fuses it all into 8 behavioral signals — what the LLM reads is not an instruction, but a living personality state. Different seeds → different people → emergent surprises.
@@ -295,11 +305,20 @@ python main.py
 
 You should see:
 ```
-INFO:     Uvicorn running on http://0.0.0.0:8800
+INFO:     Uvicorn running on http://0.0.0.0:8000
 ✓ GenomeEngine loaded · 10 personas available
 ```
 
 ### 4. Launch the Desktop Client
+
+**Recommended: Download pre-built app**
+
+Download the latest `OpenHer.app.zip` from [GitHub Releases](https://github.com/kellyvv/OpenHer/releases), unzip and double-click to open.
+
+> ⚠️ macOS may warn "unverified developer" on first launch — right-click → Open → Trust.
+
+<details>
+<summary>🔧 Developers: Build from source</summary>
 
 ```bash
 cd desktop/OpenHer
@@ -307,7 +326,9 @@ chmod +x run.sh
 ./run.sh          # Builds SwiftUI app and launches OpenHer.app
 ```
 
-> Requires macOS 14.0+ and Xcode Command Line Tools (`xcode-select --install`).
+Requires macOS 14.0+ and Xcode Command Line Tools (`xcode-select --install`).
+
+</details>
 
 ### 5. Long-Term Memory (Optional)
 
@@ -331,6 +352,50 @@ Set in `.env`:
 ```bash
 EVERMEMOS_BASE_URL=http://localhost:1995/api/v1
 ```
+
+### 💬 WeChat Integration (Optional)
+
+Connect OpenHer to WeChat via [wechat-to-anything](https://www.npmjs.com/package/wechat-to-anything) for the full text, voice, and photo experience.
+
+**How it works:** A lightweight Python adapter (`wechat_adapter.py`) translates the OpenHer REST API into OpenAI-compatible format. `wechat-to-anything` handles WeChat message routing.
+
+```
+WeChat user ←→ wechat-to-anything ←→ wechat_adapter.py ←→ OpenHer
+                   (bridge)              (adapter :8001)    (backend :8000)
+```
+
+**1. Start the adapter**
+
+```bash
+python wechat_adapter.py
+# 🔗 OpenHer WeChat Adapter
+#    Listen: 0.0.0.0:8001
+```
+
+Environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENHER_BASE` | OpenHer backend URL | `http://localhost:8000` |
+| `OPENHER_PERSONA` | Default persona | `luna` |
+| `ADAPTER_PORT` | Adapter port | `8001` |
+
+**2. Start the WeChat bridge**
+
+```bash
+npx -y wechat-to-anything@latest http://localhost:8001/v1
+# A QR code will appear on first run — scan with WeChat to log in
+```
+
+**Supported message types:**
+
+| Direction | Text | Voice | Photo | File |
+|:----------|:----:|:-----:|:-----:|:----:|
+| WeChat → Agent | ✅ | ✅ auto-transcribed | ✅ multimodal | ✅ content extracted |
+| Agent → WeChat | ✅ | ✅ persona TTS | ✅ CDN upload | — |
+
+- **Voice replies:** Uses the persona engine's emotional TTS (Qwen3-TTS + emotional guidance), auto-encoded to SILK format
+- **Photo replies:** Gemini Imagen → adapter serves locally → bridge downloads and CDN-uploads → WeChat image message
 
 ---
 

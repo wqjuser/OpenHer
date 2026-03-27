@@ -18,6 +18,8 @@ node_modules/
 .data/
 models/
 .pytest_cache/
+.venv/
+.build/
 venv/
 *.egg-info/
 dist/
