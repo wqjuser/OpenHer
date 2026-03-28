@@ -311,11 +311,12 @@ INFO:     Uvicorn running on http://0.0.0.0:8000
 
 ### 4. Launch the Desktop Client
 
-**Recommended: Download pre-built app**
+1. Download `OpenHer.app.zip` from [GitHub Releases](https://github.com/kellyvv/OpenHer/releases)
+2. Unzip to get `OpenHer.app`
+3. Double-click to open (first time: right-click → Open → Trust)
+4. Make sure the backend is running (step 3) — the client connects to `localhost:8000` automatically
 
-Download the latest `OpenHer.app.zip` from [GitHub Releases](https://github.com/kellyvv/OpenHer/releases), unzip and double-click to open.
-
-> ⚠️ macOS may warn "unverified developer" on first launch — right-click → Open → Trust.
+> 💡 No Xcode needed, no compilation — just download and run.
 
 <details>
 <summary>🔧 Developers: Build from source</summary>
@@ -323,7 +324,7 @@ Download the latest `OpenHer.app.zip` from [GitHub Releases](https://github.com/
 ```bash
 cd desktop/OpenHer
 chmod +x run.sh
-./run.sh          # Builds SwiftUI app and launches OpenHer.app
+./run.sh          # Builds and launches, .app is copied to project root
 ```
 
 Requires macOS 14.0+ and Xcode Command Line Tools (`xcode-select --install`).

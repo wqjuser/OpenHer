@@ -333,11 +333,12 @@ INFO:     Uvicorn running on http://0.0.0.0:8000
 
 ### 四、启动桌面客户端
 
-**推荐：下载预编译版本**
+1. 从 [GitHub Releases](https://github.com/kellyvv/OpenHer/releases) 下载 `OpenHer.app.zip`
+2. 解压得到 `OpenHer.app`
+3. 双击打开（首次需右键 → 打开 → 信任）
+4. 确保后端已在运行（步骤三），客户端会自动连接 `localhost:8000`
 
-从 [GitHub Releases](https://github.com/kellyvv/OpenHer/releases) 下载最新的 `OpenHer.app.zip`，解压后双击打开。
-
-> ⚠️ 首次打开 macOS 可能提示"无法验证开发者"，请右键 → 打开 → 信任。
+> 💡 无需安装 Xcode，无需编译，下载即用。
 
 <details>
 <summary>🔧 开发者：从源码编译</summary>
@@ -345,7 +346,7 @@ INFO:     Uvicorn running on http://0.0.0.0:8000
 ```bash
 cd desktop/OpenHer
 chmod +x run.sh
-./run.sh          # 编译 SwiftUI 应用并启动 OpenHer.app
+./run.sh          # 编译并启动，.app 会自动复制到项目根目录
 ```
 
 需要 macOS 14.0+ 和 Xcode 命令行工具（`xcode-select --install`）。
