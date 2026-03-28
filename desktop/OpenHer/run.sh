@@ -64,9 +64,15 @@ EOF
 # Copy SPM resources bundle if exists
 for bundle in "$BUILD_DIR"/*.bundle; do
     if [ -d "$bundle" ]; then
-        cp -R "$bundle" "$MACOS_DIR/"
+        cp -R "$bundle" "$RESOURCES_DIR/"
     fi
 done
 
+# Copy .app to project root for easy access
+ROOT_DIR="$PROJ_DIR/../.."
+rm -rf "$ROOT_DIR/OpenHer.app"
+cp -R "$APP_DIR" "$ROOT_DIR/OpenHer.app"
+echo "✅ OpenHer.app → $(cd "$ROOT_DIR" && pwd)/OpenHer.app"
+
 echo "🚀 Launching OpenHer..."
-open "$APP_DIR"
+open "$ROOT_DIR/OpenHer.app"

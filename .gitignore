@@ -20,6 +20,7 @@ models/
 .pytest_cache/
 .venv/
 .build/
+OpenHer.app
 venv/
 *.egg-info/
 dist/
