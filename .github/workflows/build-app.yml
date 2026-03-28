@@ -36,10 +36,10 @@ jobs:
             cp "Sources/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
           fi
 
-          # SPM resource bundles
+          # SPM resource bundles (go to Resources, not MacOS)
           for bundle in "$BUILD_DIR"/*.bundle; do
             if [ -d "$bundle" ]; then
-              cp -R "$bundle" "$MACOS_DIR/"
+              cp -R "$bundle" "$RESOURCES_DIR/"
             fi
           done
 
@@ -75,11 +75,6 @@ jobs:
           PLIST
 
           # Ad-hoc code signing
-          # Sign each sub-bundle first (SPM resource bundles)
-          find "$APP_DIR" -name "*.bundle" -type d | while read -r sub; do
-            codesign --force --sign - "$sub" 2>/dev/null || true
-          done
-          # Then sign the main binary and app
           codesign --force --sign - "$MACOS_DIR/OpenHer"
           codesign --force --sign - "$APP_DIR"
 
