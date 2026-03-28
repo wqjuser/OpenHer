@@ -74,8 +74,14 @@ jobs:
           </plist>
           PLIST
 
-          # Ad-hoc code signing (avoids Gatekeeper quarantine block)
-          codesign --force --deep --sign - "$APP_DIR"
+          # Ad-hoc code signing
+          # Sign each sub-bundle first (SPM resource bundles)
+          find "$APP_DIR" -name "*.bundle" -type d | while read -r sub; do
+            codesign --force --sign - "$sub" 2>/dev/null || true
+          done
+          # Then sign the main binary and app
+          codesign --force --sign - "$MACOS_DIR/OpenHer"
+          codesign --force --sign - "$APP_DIR"
 
           echo "✅ OpenHer.app assembled and signed (ad-hoc)"
 
