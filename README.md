@@ -35,7 +35,9 @@
 
 <br>
 
-[![演示视频](https://img.youtube.com/vi/AE7bspVHEI8/maxresdefault.jpg)](https://www.youtube.com/watch?v=AE7bspVHEI8)
+<video src="https://github.com/kellyvv/OpenHer/raw/main/docs/assets/demo_showcase.mp4" width="100%" controls autoplay loop muted></video>
+
+*↑ 展示视频 · [YouTube 完整版](https://www.youtube.com/watch?v=AE7bspVHEI8)*
 
 </div>
 
@@ -195,7 +197,9 @@ OpenHer 以同样的逻辑构建 Persona Engine——**运用仿生机制，创�
 
 <br>
 
-[![原理讲解视频](https://img.youtube.com/vi/9X8CnuJpc9M/maxresdefault.jpg)](https://www.youtube.com/watch?v=9X8CnuJpc9M)
+<video src="https://github.com/kellyvv/OpenHer/raw/main/docs/assets/demo_theory.mp4" width="100%" controls autoplay loop muted></video>
+
+*↑ 原理讲解视频 · [YouTube 完整版](https://www.youtube.com/watch?v=9X8CnuJpc9M)*
 
 </div>
 
