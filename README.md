@@ -35,7 +35,7 @@
 
 <div style="display: flex; flex-direction: column; width: 100%; align-items: center; margin-top: 20px;">
     <div style="text-align: center; width: 100%; max-width: 800px; height: auto;">
-        <video src="https://github.com/kellyvv/OpenHer/releases/download/v0.1-media/demo_showcase.mp4" width="100%" height="auto" controls autoplay loop muted></video>
+        <video src="https://github.com/user-attachments/assets/e2292f6b-9a97-42b0-b34e-8ab9db5e31ff" width="100%" height="auto" controls autoplay loop muted></video>
         <p style="color: gray; font-size: 12px; text-align: center;">展示视频 · <a href="https://www.youtube.com/watch?v=AE7bspVHEI8">YouTube 完整版</a></p>
     </div>
 </div>
