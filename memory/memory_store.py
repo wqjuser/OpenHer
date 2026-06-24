@@ -99,6 +99,8 @@ class MemoryStore:
             (user_id, persona_id, content, category, importance, source_turn, time.time()),
         )
         self._conn.commit()
+        if cursor.lastrowid is None:
+            raise RuntimeError("SQLite did not return a memory row id")
         return cursor.lastrowid
 
     def add_facts(

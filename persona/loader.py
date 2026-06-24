@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional, cast
 
 import frontmatter
 import yaml
@@ -164,7 +164,7 @@ class PersonaLoader:
         post = frontmatter.load(str(persona_file))
 
         # Parse frontmatter
-        meta = post.metadata
+        meta = cast(dict[str, Any], post.metadata)
         persona_id = persona_dir.name
 
         # Voice + Image config: read from SHELL.md (external modality config)
@@ -172,7 +172,7 @@ class PersonaLoader:
         shell_file = persona_dir / "SHELL.md"
         if shell_file.exists():
             shell_post = frontmatter.load(str(shell_file))
-            shell_meta = shell_post.metadata
+            shell_meta = cast(dict[str, Any], shell_post.metadata)
         else:
             shell_meta = meta  # fallback: read from SOUL.md
 

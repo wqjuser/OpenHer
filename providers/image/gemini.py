@@ -11,7 +11,7 @@ import asyncio
 import mimetypes
 import os
 import time
-from typing import Optional
+from typing import Any, Optional, cast
 
 from .base import BaseImageProvider, ImageResult
 
@@ -80,7 +80,8 @@ class GeminiImageProvider(BaseImageProvider):
             if max(w, h) > max_px:
                 ratio = max_px / max(w, h)
                 new_w, new_h = int(w * ratio), int(h * ratio)
-                img = img.resize((new_w, new_h), Image.LANCZOS)
+                resample_filter = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+                img = img.resize((new_w, new_h), resample_filter)
 
             buf = io.BytesIO()
             img.save(buf, format='JPEG', quality=quality)
@@ -110,8 +111,8 @@ class GeminiImageProvider(BaseImageProvider):
         prompt: str,
         aspect_ratio: str = "",
         image_size: str = "1K",
-        person_generation: str = "",
         reference_images: Optional[list[str]] = None,
+        person_generation: str = "",
         **kwargs,
     ) -> ImageResult:
         """
@@ -165,7 +166,7 @@ class GeminiImageProvider(BaseImageProvider):
                 image_cfg_kwargs["person_generation"] = person_generation
 
             config = types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_level="MINIMAL"),
+                thinking_config=types.ThinkingConfig(thinking_level=cast(Any, "MINIMAL")),
                 image_config=types.ImageConfig(**image_cfg_kwargs),
                 response_modalities=["IMAGE", "TEXT"],
             )
@@ -237,6 +238,9 @@ class GeminiImageProvider(BaseImageProvider):
                 if part.inline_data and part.inline_data.data:
                     # Save image
                     inline_data = part.inline_data
+                    image_data = inline_data.data
+                    if not image_data:
+                        continue
                     mime_type = inline_data.mime_type or "image/png"
                     ext = mimetypes.guess_extension(mime_type) or ".png"
                     # Remove leading dot from ext if _cache_path already adds it
@@ -247,8 +251,8 @@ class GeminiImageProvider(BaseImageProvider):
                     )
 
                     with open(image_path, "wb") as f:
-                        f.write(inline_data.data)
-                    print(f"  [gemini] ✅ image received: {len(inline_data.data)/1024:.0f}KB, mime={mime_type}")
+                        f.write(image_data)
+                    print(f"  [gemini] ✅ image received: {len(image_data)/1024:.0f}KB, mime={mime_type}")
 
                 elif part.text:
                     text_parts.append(part.text)

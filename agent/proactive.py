@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false
 """
 ProactiveMixin — Drive-driven autonomous messaging for ChatAgent.
 

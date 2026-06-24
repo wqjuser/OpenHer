@@ -9,9 +9,9 @@ evermemos:
   base_url: "https://api.evermind.ai/api/v0"  # Cloud EverMemOS
 
   # Retrieval settings
-  retrieve_method: "rrf"         # rrf | hybrid | agentic
+  retrieve_method: "rrf"         # cloud maps rrf/default to keyword; also supports keyword | vector | hybrid | agentic
   agentic_rollout_pct: 0         # 0-100: % of requests using agentic (A/B)
-  search_timeout_sec: 3.0        # Hard timeout per search call
+  search_timeout_sec: 10.0       # Hard timeout per search call
   load_timeout_sec: 5.0          # Hard timeout for session context load
 
   # Budget limits (max items injected into Actor prompt)

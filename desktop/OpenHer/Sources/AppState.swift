@@ -17,6 +17,7 @@ final class AppState: ObservableObject {
     // MARK: - Connection
     @Published var isConnected: Bool = false
     @Published var serverURL: String = "http://localhost:8000"
+    @Published var apiToken: String = ""
 
     // MARK: - Personas
     @Published var personas: [Persona] = []
@@ -76,7 +77,7 @@ final class AppState: ObservableObject {
     var cachedFrontImages: [String: NSImage] = [:]
 
     // MARK: - Services
-    lazy var apiClient: APIClient = APIClient(baseURL: self.serverURL)
+    lazy var apiClient: APIClient = APIClient(baseURL: self.serverURL, apiToken: self.apiToken)
     lazy var wsManager: WebSocketManager = WebSocketManager(appState: self)
     lazy var connectionManager: ConnectionManager = ConnectionManager(appState: self)
 
@@ -90,6 +91,7 @@ final class AppState: ObservableObject {
         // Read persisted URL before lazy services initialize
         let savedURL = UserDefaults.standard.string(forKey: "serverURL") ?? "http://localhost:8000"
         serverURL = savedURL
+        apiToken = UserDefaults.standard.string(forKey: "apiToken") ?? ""
         // Restore persisted mode settings
         developerMode = UserDefaults.standard.bool(forKey: "developerMode")
         demoMode = UserDefaults.standard.bool(forKey: "demoMode")
@@ -366,12 +368,34 @@ final class AppState: ObservableObject {
         return id
     }
 
-    func updateServerURL(_ url: String) {
+    func authenticatedMediaURL(path: String) -> URL? {
+        let urlString = path.hasPrefix("http://") || path.hasPrefix("https://")
+            ? path
+            : "\(serverURL)\(path)"
+        guard var components = URLComponents(string: urlString) else { return nil }
+        let token = apiToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !token.isEmpty {
+            var items = components.queryItems ?? []
+            items.append(URLQueryItem(name: "token", value: token))
+            components.queryItems = items
+        }
+        return components.url
+    }
+
+    func updateServerConfig(url: String, apiToken: String) {
+        let normalizedToken = apiToken.trimmingCharacters(in: .whitespacesAndNewlines)
         serverURL = url
-        apiClient = APIClient(baseURL: url)
+        self.apiToken = normalizedToken
+        UserDefaults.standard.set(url, forKey: "serverURL")
+        UserDefaults.standard.set(normalizedToken, forKey: "apiToken")
+        apiClient = APIClient(baseURL: url, apiToken: normalizedToken)
         wsManager.disconnect()
         connectionManager.startMonitoring()
         Task { await loadPersonas() }
+    }
+
+    func updateServerURL(_ url: String) {
+        updateServerConfig(url: url, apiToken: apiToken)
     }
 
     // MARK: - Demo Mode Actions

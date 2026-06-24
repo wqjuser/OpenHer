@@ -15,6 +15,7 @@ from __future__ import annotations
 import math
 import random
 import time
+from typing import Optional
 
 from engine.genome.genome_engine import DRIVES
 
@@ -41,7 +42,7 @@ class DriveMetabolism:
       temp_coeff, temp_floor
     """
 
-    def __init__(self, clock=None, engine_params: dict = None):
+    def __init__(self, clock=None, engine_params: Optional[dict] = None):
         self.frustration = {d: 0.0 for d in DRIVES}
         self.decay_rate = 0.1  # Per-turn real-time decay
         self._last_tick = clock or time.time()
@@ -168,7 +169,7 @@ class DriveMetabolism:
         }
 
     @classmethod
-    def from_dict(cls, data: dict, engine_params: dict = None) -> DriveMetabolism:
+    def from_dict(cls, data: dict, engine_params: Optional[dict] = None) -> DriveMetabolism:
         """Restore from serialized state.
 
         engine_params: If provided, uses these (from persona).

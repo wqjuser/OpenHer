@@ -14,7 +14,8 @@ import os
 from typing import Optional
 
 from .config import get_llm_provider_config, get_tts_provider_config
-from .llm.base import BaseLLMProvider, OpenAICompatProvider
+from .image.base import BaseImageProvider
+from .llm.base import BaseLLMProvider
 from .speech.tts.base import BaseTTSProvider
 
 
@@ -24,6 +25,22 @@ from .speech.tts.base import BaseTTSProvider
 
 # Map: provider name → class
 _LLM_PROVIDERS: dict[str, type[BaseLLMProvider]] = {}
+
+
+def _provider_env_prefix(provider: str) -> str:
+    """Convert provider id to an env-safe prefix."""
+    return "".join(ch if ch.isalnum() else "_" for ch in provider.upper())
+
+
+def _first_env(*names: str) -> str:
+    """Return the first non-empty environment value from the provided names."""
+    for name in names:
+        if not name:
+            continue
+        value = os.getenv(name, "")
+        if value:
+            return value
+    return ""
 
 
 def _register_llm_providers():
@@ -39,6 +56,7 @@ def _register_llm_providers():
     from .llm.claude import ClaudeLLMProvider
     from .llm.stepfun import StepFunLLMProvider
     from .llm.minimax import MiniMaxLLMProvider
+    from .llm.deepseek import DeepSeekLLMProvider
 
     _LLM_PROVIDERS.update({
         "dashscope": DashScopeLLMProvider,
@@ -49,6 +67,7 @@ def _register_llm_providers():
         "claude": ClaudeLLMProvider,
         "stepfun": StepFunLLMProvider,
         "minimax": MiniMaxLLMProvider,
+        "deepseek": DeepSeekLLMProvider,
     })
 
 
@@ -97,16 +116,20 @@ def get_llm(
     resolved_model = model or cfg.get("model") or preset.get("default_model")
     resolved_temp = temperature if temperature is not None else cfg.get("temperature", 0.92)
     resolved_max = max_tokens if max_tokens is not None else cfg.get("max_tokens", 1024)
+    provider_prefix = _provider_env_prefix(provider_name)
 
-    # API key: explicit > env var from preset
+    # API key: explicit > env var from preset > provider convention > global fallback
     resolved_key = api_key
     if not resolved_key:
         key_env = preset.get("api_key_env", "")
-        if key_env:
-            resolved_key = os.getenv(key_env, "")
+        resolved_key = _first_env(key_env, f"{provider_prefix}_API_KEY", "LLM_API_KEY")
 
-    # Base URL: explicit > preset
-    resolved_url = base_url or preset.get("base_url")
+    # Base URL: explicit > provider convention > global fallback > env var from preset > preset
+    resolved_url = base_url
+    if not resolved_url:
+        base_url_env = preset.get("base_url_env", "")
+        resolved_url = _first_env(f"{provider_prefix}_BASE_URL", "LLM_BASE_URL", base_url_env)
+    resolved_url = resolved_url or preset.get("base_url")
 
     return provider_cls(
         model=resolved_model,
@@ -196,7 +219,7 @@ def get_tts(
 # Image Provider Registry
 # ─────────────────────────────────────────────────────────────
 
-_IMAGE_PROVIDERS: dict[str, type] = {}
+_IMAGE_PROVIDERS: dict[str, type[BaseImageProvider]] = {}
 
 
 def _register_image_providers():
@@ -213,7 +236,7 @@ def get_image_gen(
     cache_dir: Optional[str] = None,
     api_key: Optional[str] = None,
     model: Optional[str] = None,
-) -> "BaseImageProvider":
+) -> BaseImageProvider:
     """
     Create an Image generation provider instance.
 

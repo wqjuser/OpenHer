@@ -93,4 +93,4 @@ class MiniMaxTTSProvider(BaseTTSProvider):
         with open(audio_path, "wb") as f:
             f.write(result.audio_bytes)
 
-        return TTSResult(success=True, audio_path=audio_path)
+        return TTSResult(success=True, audio_path=audio_path, audio_format=ext)

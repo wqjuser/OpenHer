@@ -33,6 +33,7 @@ class Skill:
     resources: list[str] = field(default_factory=list)
     needs_chat_history: bool = False  # Skill declares if it needs chat history injected
     excludes: list[str] = field(default_factory=list)  # modalities that must be removed from plan when this skill is selected
+    prompt_injection: str = ""
     base_dir: str = ""
     body: Optional[str] = None       # L2 instructions (lazy-loaded by activate())
 
@@ -73,6 +74,30 @@ class SkillExecutionResult:
 SKILL_FILENAME = "SKILL.md"
 
 
+def _meta_str(value: object, default: str = "") -> str:
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return default
+    return str(value)
+
+
+def _meta_optional_str(value: object) -> Optional[str]:
+    return value if isinstance(value, str) else None
+
+
+def _meta_bool(value: object, default: bool = False) -> bool:
+    return value if isinstance(value, bool) else default
+
+
+def _meta_str_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if isinstance(value, tuple):
+        return [str(item) for item in value]
+    return []
+
+
 def load_skill(skill_dir: Path) -> Skill:
     """Parse SKILL.md frontmatter into Skill (L1 only, body=None).
 
@@ -84,41 +109,42 @@ def load_skill(skill_dir: Path) -> Skill:
     meta = post.metadata
 
     # trigger: smart default
-    trigger = meta.get("trigger", "")
+    trigger = _meta_str(meta.get("trigger"), "")
     if not trigger:
         has_scripts = (skill_dir / "scripts").exists()
         trigger = "tool" if has_scripts else "manual"
 
     # executor: infer from trigger
-    executor = meta.get("executor", "")
+    executor = _meta_str(meta.get("executor"), "")
     if not executor:
         executor = "sandbox" if trigger == "tool" else "handler"
 
     # handler_fn: prefer new field, fallback to legacy
-    handler_fn = (
+    handler_fn = _meta_str(
         meta.get("handler_fn")
         or meta.get("handler_module")
-        or meta.get("handler")
-        or ""
+        or meta.get("handler"),
+        "",
     )
 
     return Skill(
         skill_id=skill_dir.name,
-        name=meta.get("name", skill_dir.name),
-        description=meta.get("description", ""),
+        name=_meta_str(meta.get("name"), skill_dir.name),
+        description=_meta_str(meta.get("description"), ""),
         trigger=trigger,
-        modality=meta.get("modality", ""),
+        modality=_meta_str(meta.get("modality"), ""),
         executor=executor,
         handler_fn=handler_fn,
-        tools=meta.get("tools", []),
-        resources=meta.get("resources", []),
-        needs_chat_history=meta.get("needs_chat_history", False),
-        excludes=meta.get("excludes", []),
+        tools=_meta_str_list(meta.get("tools")),
+        resources=_meta_str_list(meta.get("resources")),
+        needs_chat_history=_meta_bool(meta.get("needs_chat_history"), False),
+        excludes=_meta_str_list(meta.get("excludes")),
+        prompt_injection=_meta_str(meta.get("prompt_injection"), ""),
         base_dir=str(skill_dir),
         body=None,  # L1 only — activate() loads L2
         # legacy fields
-        handler=meta.get("handler_module") or meta.get("handler"),
-        cron_schedule=meta.get("cron"),
-        requires=meta.get("requires", []),
-        tags=meta.get("tags", []),
+        handler=_meta_optional_str(meta.get("handler_module") or meta.get("handler")),
+        cron_schedule=_meta_optional_str(meta.get("cron")),
+        requires=_meta_str_list(meta.get("requires")),
+        tags=_meta_str_list(meta.get("tags")),
     )

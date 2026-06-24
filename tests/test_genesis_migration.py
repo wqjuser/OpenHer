@@ -37,7 +37,7 @@ def create_db_memory(persona_id, db_path, now=1000.0):
 
 # ── Tests ──
 
-def test_data_integrity():
+def check_data_integrity():
     """Verify JSON data matches DB data for all personas."""
     print("═" * 60)
     print("TEST 1: Data Integrity")
@@ -97,7 +97,7 @@ def test_data_integrity():
     return all_pass
 
 
-def test_knn_recall():
+def check_knn_recall():
     """Verify KNN recall is consistent between JSON-loaded and DB-loaded memories."""
     print("═" * 60)
     print("TEST 2: KNN Recall Consistency")
@@ -143,7 +143,7 @@ def test_knn_recall():
     return all_pass
 
 
-def test_empty_persona():
+def check_empty_persona():
     """Verify empty persona doesn't crash."""
     print("═" * 60)
     print("TEST 3: Empty Persona")
@@ -170,7 +170,7 @@ def test_empty_persona():
     return True
 
 
-def test_clean_action_markers():
+def check_clean_action_markers():
     """Verify action marker cleaning covers all patterns."""
     print("═" * 60)
     print("TEST 4: Action Marker Cleaning")
@@ -202,7 +202,7 @@ def test_clean_action_markers():
     return all_pass
 
 
-def test_save_and_load_roundtrip():
+def check_save_and_load_roundtrip():
     """Verify save_genesis_to_db → load roundtrip."""
     print("═" * 60)
     print("TEST 5: Save → Load Roundtrip")
@@ -263,13 +263,33 @@ def test_save_and_load_roundtrip():
     return True
 
 
+def test_data_integrity():
+    assert check_data_integrity()
+
+
+def test_knn_recall():
+    assert check_knn_recall()
+
+
+def test_empty_persona():
+    assert check_empty_persona()
+
+
+def test_clean_action_markers():
+    assert check_clean_action_markers()
+
+
+def test_save_and_load_roundtrip():
+    assert check_save_and_load_roundtrip()
+
+
 if __name__ == "__main__":
     results = []
-    results.append(("Data Integrity", test_data_integrity()))
-    results.append(("KNN Recall", test_knn_recall()))
-    results.append(("Empty Persona", test_empty_persona()))
-    results.append(("Action Markers", test_clean_action_markers()))
-    results.append(("Save/Load Roundtrip", test_save_and_load_roundtrip()))
+    results.append(("Data Integrity", check_data_integrity()))
+    results.append(("KNN Recall", check_knn_recall()))
+    results.append(("Empty Persona", check_empty_persona()))
+    results.append(("Action Markers", check_clean_action_markers()))
+    results.append(("Save/Load Roundtrip", check_save_and_load_roundtrip()))
 
     print("═" * 60)
     print("SUMMARY")

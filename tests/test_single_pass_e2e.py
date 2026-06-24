@@ -10,6 +10,7 @@ Layer 3: Edge cases (multi-turn, persona switch, empty/long messages)
 
 Usage:
     # Start backend first, then:
+    # PORT=8000 ./run.sh
     PYTHONPATH=. python3 tests/test_single_pass_e2e.py
 """
 
@@ -27,8 +28,17 @@ except ImportError:
     print("❌ websockets not installed: pip install websockets")
     sys.exit(1)
 
-WS_URI = "ws://localhost:8800/ws/chat"
+_WS_PORT = os.getenv("PORT", "8000")
+WS_URI = os.getenv("OPENHER_TEST_WS_URI", f"ws://127.0.0.1:{_WS_PORT}/ws/chat")
 TIMEOUT = 60  # generous timeout for first-turn (cold start)
+
+
+def connect_local_ws(uri: str):
+    """Connect to localhost without honoring external proxy env vars."""
+    try:
+        return websockets.connect(uri, proxy=None)
+    except TypeError:
+        return websockets.connect(uri)
 
 
 async def send_chat(ws, content: str, persona_id: str, user_name: str = "Tester") -> dict:
@@ -99,7 +109,7 @@ async def switch_persona(ws, persona_id: str, user_name: str = "Tester"):
 # Layer 1: Functional Correctness
 # ═══════════════════════════════════════════════════════════
 
-async def test_layer1(ws):
+async def run_layer1(ws):
     print("\n" + "═" * 70)
     print("  LAYER 1: FUNCTIONAL CORRECTNESS")
     print("═" * 70)
@@ -156,7 +166,7 @@ LAYER2_MATRIX = [
     ("luna",   "日常", "今天天气好好，你在做什么？"),
 ]
 
-async def test_layer2(ws):
+async def run_layer2(ws):
     print("\n" + "═" * 70)
     print("  LAYER 2: PERSONALITY CONSISTENCY (Human Review)")
     print("═" * 70)
@@ -198,7 +208,7 @@ async def test_layer2(ws):
 # Layer 3: Edge Cases & Regression
 # ═══════════════════════════════════════════════════════════
 
-async def test_layer3(ws):
+async def run_layer3(ws):
     print("\n" + "═" * 70)
     print("  LAYER 3: EDGE CASES & REGRESSION")
     print("═" * 70)
@@ -274,7 +284,7 @@ async def main():
     print("=" * 70)
 
     try:
-        ws_conn = websockets.connect(WS_URI)
+        ws_conn = connect_local_ws(WS_URI)
         ws = await ws_conn.__aenter__()
     except (OSError, ConnectionRefusedError):
         print(f"❌ Server not running at {WS_URI}")
@@ -282,9 +292,9 @@ async def main():
         sys.exit(1)
 
     try:
-        p1, t1 = await test_layer1(ws)
-        await test_layer2(ws)
-        p3, t3 = await test_layer3(ws)
+        p1, t1 = await run_layer1(ws)
+        await run_layer2(ws)
+        p3, t3 = await run_layer3(ws)
 
         total_pass = p1 + p3
         total_tests = t1 + t3

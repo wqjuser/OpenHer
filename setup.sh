@@ -12,18 +12,29 @@ echo ""
 
 # 1. Python version check (auto-detect Homebrew versions)
 PYTHON=${PYTHON:-python3}
+PY_MIN_MINOR=11
+PY_MAX_MINOR=13
 PY_VERSION=$($PYTHON --version 2>&1 | grep -oE '[0-9]+\.[0-9]+')
 PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
 PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
 
-if [ "$PY_MAJOR" -lt 3 ] || ([ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 11 ]); then
-    echo "⚠️  默认 Python 版本太低: $PY_VERSION（需要 3.11+）"
-    echo "   正在搜索更高版本..."
+is_supported_python() {
+    [ "$PY_MAJOR" -eq 3 ] || return 1
+    [ "$PY_MINOR" -ge "$PY_MIN_MINOR" ] || return 1
+    [ "$PY_MINOR" -gt "$PY_MAX_MINOR" ] && return 1
+    return 0
+}
+
+if ! is_supported_python; then
+    echo "⚠️  默认 Python 版本不受支持: $PY_VERSION（需要 3.11-3.13）"
+    echo "   正在搜索支持版本..."
     FOUND=0
     for V in python3.13 python3.12 python3.11; do
         if command -v "$V" &>/dev/null; then
             PYTHON="$V"
             PY_VERSION=$($PYTHON --version 2>&1 | grep -oE '[0-9]+\.[0-9]+')
+            PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
+            PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
             echo "✅ 找到 $V ($PY_VERSION)"
             FOUND=1
             break
@@ -31,7 +42,7 @@ if [ "$PY_MAJOR" -lt 3 ] || ([ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 11 ]); t
     done
     if [ "$FOUND" -eq 0 ]; then
         echo ""
-        echo "❌ 未找到 Python 3.11+，请先安装："
+        echo "❌ 未找到 Python 3.11-3.13，请先安装："
         echo ""
         echo "   brew install python@3.13"
         echo ""

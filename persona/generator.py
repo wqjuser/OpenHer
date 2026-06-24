@@ -239,6 +239,8 @@ class PersonaGenerator:
 
     async def _generate_voice(self, profile: PersonaProfile):
         """用 TTS voice_design 生成参考音频"""
+        if self.qwen3_client is None:
+            return None
         try:
             result = self.qwen3_client.voice_design(
                 text=profile.voice.ref_text,

@@ -200,7 +200,9 @@ class TestModalitySkillEngine:
         engine.load_all()
         engine.activate("selfie_gen")
         skill = engine.get_by_modality("照片")
+        assert skill is not None
         assert skill.is_activated
+        assert skill.body is not None
         assert "角色照片生成" in skill.body
 
     def test_build_prompt(self, modality_skills_dir):
@@ -219,6 +221,29 @@ class TestModalitySkillEngine:
         assert skills == {}
         assert engine.modality_skills == {}
         assert engine.build_prompt() == ""
+
+    def test_skips_modality_skill_when_declared_tool_is_unavailable(self, tmp_path):
+        from agent.skills.tool_registry import ToolRegistry
+
+        skill_dir = tmp_path / "voice_msg"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(textwrap.dedent("""\
+            ---
+            name: 语音消息
+            description: 用声音传递情感
+            trigger: modality
+            modality: 语音
+            tools:
+              - synthesize_voice
+            ---
+            语音指南
+        """))
+
+        engine = ModalitySkillEngine(str(tmp_path), tool_registry=ToolRegistry())
+        skills = engine.load_all()
+
+        assert "voice_msg" not in skills
+        assert engine.get_by_modality("语音") is None
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +283,7 @@ class TestTaskSkillEngine:
         engine = TaskSkillEngine(str(openclaw_skills_dir))
         engine.load_all()
         skill = engine.get("weather")
+        assert skill is not None
         assert skill.trigger == "tool"
         assert skill.executor == "sandbox"
         assert skill in engine.tool_skills
@@ -284,16 +310,19 @@ class TestJSONExtraction:
     def test_markdown_fenced_json(self):
         text = '```json\n{"activate": "weather", "thought": "reason"}\n```'
         result = self.engine._extract_json(text)
+        assert result is not None
         assert result["activate"] == "weather"
 
     def test_json_with_surrounding_text(self):
         text = 'Here is the result: {"done": true} and more text'
         result = self.engine._extract_json(text)
+        assert result is not None
         assert result["done"] is True
 
     def test_nested_json(self):
         text = '{"actions": [{"tool": "execute_shell", "params": {"command": "echo hi"}}]}'
         result = self.engine._extract_json(text)
+        assert result is not None
         assert len(result["actions"]) == 1
 
     def test_invalid_json(self):

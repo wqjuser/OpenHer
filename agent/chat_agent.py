@@ -83,6 +83,7 @@ class ChatAgent(PromptBuilderMixin, EverMemosMixin, ModalityRetryMixin, Proactiv
         self.llm = llm
         self.user_id = user_id
         self.user_name = user_name
+        self._client_id: Optional[str] = None
         # Dual skill engines (isolated)
         self.task_skill_engine = task_skill_engine or skill_engine  # backward compat
         self.modality_skill_engine = modality_skill_engine
@@ -839,4 +840,3 @@ class ChatAgent(PromptBuilderMixin, EverMemosMixin, ModalityRetryMixin, Proactiv
 
     # ── Proactive Tick ──
     # See agent/proactive.py (ProactiveMixin)
-

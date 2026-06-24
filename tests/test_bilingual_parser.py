@@ -81,7 +81,7 @@ class TestEnglishParsing:
         result = parse_raw_output(raw)
         assert result["monologue"] == "nervous"
         assert result["reply"] == "Hi there"
-        assert result["modality"] == "text"  # raw text (router returns raw, chat_agent normalizes)
+        assert result["modality"] == "文字"  # canonical Chinese key
 
 
 

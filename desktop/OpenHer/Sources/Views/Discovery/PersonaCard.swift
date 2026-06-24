@@ -50,8 +50,7 @@ struct PersonaCard: View {
             return
         }
         guard persona.hasFront else { return }
-        let urlString = "\(appState.serverURL)/api/persona/\(persona.personaId)/media/front"
-        guard let url = URL(string: urlString) else { return }
+        guard let url = appState.authenticatedMediaURL(path: "/api/persona/\(persona.personaId)/media/front") else { return }
         URLSession.shared.dataTask(with: url) { data, _, _ in
             if let data = data, let img = NSImage(data: data) {
                 DispatchQueue.main.async {

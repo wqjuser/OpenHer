@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false
 """
 ModalityRetryMixin — Modality failure handling for ChatAgent.
 

@@ -15,7 +15,7 @@ import os
 import threading
 import time
 import wave
-from typing import Optional
+from typing import Optional, cast
 
 from .base import BaseTTSProvider, TTSResult
 
@@ -74,7 +74,12 @@ class DashScopeTTSProvider(BaseTTSProvider):
         audio_path = self._cache_path(cache_key, ext="wav")
 
         if os.path.exists(audio_path):
-            return TTSResult(success=True, audio_path=audio_path)
+            return TTSResult(
+                success=True,
+                audio_path=audio_path,
+                mime_type="audio/wav",
+                audio_format="wav",
+            )
 
         # WebSocket synthesis is blocking — run in executor
         loop = asyncio.get_event_loop()
@@ -109,18 +114,21 @@ class DashScopeTTSProvider(BaseTTSProvider):
             def on_open(self) -> None:
                 pass
 
-            def on_close(self, code, msg) -> None:
+            def on_close(self, close_status_code, close_msg) -> None:
                 pass
 
-            def on_event(self, response: dict) -> None:
+            def on_event(self, message) -> None:
                 try:
-                    etype = response.get("type", "")
+                    if not isinstance(message, dict):
+                        return
+                    message_data = cast(dict[str, object], message)
+                    etype = message_data.get("type", "")
                     if etype == "response.audio.delta":
-                        audio_chunks.append(base64.b64decode(response["delta"]))
+                        audio_chunks.append(base64.b64decode(str(message_data["delta"])))
                     elif etype == "session.finished":
                         complete_event.set()
                     elif etype == "error":
-                        error_holder[0] = str(response.get("error", "Unknown"))
+                        error_holder[0] = str(message_data.get("error", "Unknown"))
                         complete_event.set()
                 except Exception as e:
                     error_holder[0] = str(e)
@@ -169,7 +177,12 @@ class DashScopeTTSProvider(BaseTTSProvider):
                 wf.writeframes(audio_data)
 
             print(f"  [tts] ✓ Qwen3-TTS: {len(audio_data)//1024}KB, voice={voice}")
-            return TTSResult(success=True, audio_path=audio_path)
+            return TTSResult(
+                success=True,
+                audio_path=audio_path,
+                mime_type="audio/wav",
+                audio_format="wav",
+            )
 
         except Exception as e:
             return TTSResult(success=False, error=str(e))

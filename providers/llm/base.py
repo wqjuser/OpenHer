@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import AsyncIterator, Optional
+from typing import Any, AsyncIterator, Optional, cast
 
 from openai import AsyncOpenAI
 
@@ -46,6 +46,24 @@ class ChatResponse:
 
 class BaseLLMProvider(ABC):
     """LLM provider 统一接口."""
+
+    model: str
+    temperature: float
+    max_tokens: int
+    provider_name: str
+    base_url: str
+
+    def __init__(
+        self,
+        model: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        temperature: float = 0.92,
+        max_tokens: int = 1024,
+    ):
+        # Concrete providers own initialization; this signature documents the
+        # shared factory contract used by providers.registry.
+        pass
 
     @abstractmethod
     async def chat(
@@ -121,6 +139,7 @@ class OpenAICompatProvider(BaseLLMProvider):
 
         # Resolve base URL
         resolved_url = base_url or self.DEFAULT_BASE_URL
+        self.base_url = resolved_url
 
         self.client = AsyncOpenAI(
             api_key=resolved_key,
@@ -148,7 +167,7 @@ class OpenAICompatProvider(BaseLLMProvider):
         tool_choice: Optional[str] = None,
     ) -> ChatResponse:
         """Send a chat request and get a response (async)."""
-        api_messages = []
+        api_messages: list[dict[str, Any]] = []
         for m in messages:
             msg = {"role": m.role, "content": m.content}
             if m.tool_call_id:
@@ -158,7 +177,7 @@ class OpenAICompatProvider(BaseLLMProvider):
             api_messages.append(msg)
 
         token_param = self._token_param_name()
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "model": self.model,
             "messages": api_messages,
             "temperature": temperature if temperature is not None else self.temperature,
@@ -169,7 +188,7 @@ class OpenAICompatProvider(BaseLLMProvider):
             if tool_choice:
                 kwargs["tool_choice"] = tool_choice
 
-        response = await self.client.chat.completions.create(**kwargs)
+        response = await self.client.chat.completions.create(**cast(Any, kwargs))
 
         choice = response.choices[0]
         tc = choice.message.tool_calls
@@ -194,15 +213,16 @@ class OpenAICompatProvider(BaseLLMProvider):
         max_tokens: Optional[int] = None,
     ) -> AsyncIterator[str]:
         """Stream a chat response, yielding content chunks (async)."""
-        api_messages = [{"role": m.role, "content": m.content} for m in messages]
+        api_messages: list[dict[str, Any]] = [{"role": m.role, "content": m.content} for m in messages]
+        stream_kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": api_messages,
+            "temperature": temperature if temperature is not None else self.temperature,
+            "stream": True,
+            self._token_param_name(): max_tokens if max_tokens is not None else self.max_tokens,
+        }
 
-        stream = await self.client.chat.completions.create(
-            model=self.model,
-            messages=api_messages,
-            temperature=temperature if temperature is not None else self.temperature,
-            stream=True,
-            **{self._token_param_name(): max_tokens if max_tokens is not None else self.max_tokens},
-        )
+        stream = await self.client.chat.completions.create(**cast(Any, stream_kwargs))
 
         async for chunk in stream:
             if chunk.choices and chunk.choices[0].delta.content:

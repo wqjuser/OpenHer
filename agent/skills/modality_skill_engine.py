@@ -61,10 +61,29 @@ class ModalitySkillEngine:
                     try:
                         skill = load_skill(entry)
                         if skill.trigger == "modality" and skill.modality:
+                            if not self._tools_available(skill):
+                                continue
                             self._skills[skill.skill_id] = skill
                     except Exception as e:
                         print(f"[modality-skill] Failed to load {entry.name}: {e}")
         return self._skills
+
+    def _tools_available(self, skill: Skill) -> bool:
+        """Return whether all tools declared by a skill are registered."""
+        if not skill.tools or self.tool_registry is None:
+            return True
+        missing = [
+            tool_name
+            for tool_name in skill.tools
+            if not self.tool_registry.has(tool_name)
+        ]
+        if missing:
+            print(
+                f"[modality-skill] Skipping {skill.skill_id}: "
+                f"missing tools {missing}"
+            )
+            return False
+        return True
 
     # -- L2 activation -------------------------------------------------------
 
@@ -104,7 +123,7 @@ class ModalitySkillEngine:
         raw_output: str,
         persona,
         llm,
-        chat_history: list = None,
+        chat_history: Optional[list] = None,
     ) -> List[SkillExecutionResult]:
         """LLM-driven multi-skill planning and execution.
 
@@ -208,7 +227,7 @@ class ModalitySkillEngine:
         raw_output: str,
         persona,
         llm,
-        chat_history: list = None,
+        chat_history: Optional[list] = None,
     ) -> Optional[SkillExecutionResult]:
         """Execute a modality skill — prompt-driven, no function calling.
 
@@ -256,7 +275,7 @@ class ModalitySkillEngine:
         raw_output: str,
         persona,
         llm,
-        chat_history: list = None,
+        chat_history: Optional[list] = None,
     ) -> SkillExecutionResult:
         """Execute skill via prompt-driven structured output.
 
@@ -338,6 +357,14 @@ class ModalitySkillEngine:
         this is deterministic, not LLM-decided.
         """
         output = {}
+        if self.tool_registry is None:
+            return SkillExecutionResult(
+                skill_id=skill.skill_id,
+                success=False,
+                status=ExecutionStatus.FAILED,
+                output={"error": "Tool registry is not configured"},
+            )
+        tool_registry = self.tool_registry
 
         # ── Photo skill: get_reference_image → generate_photo ──
         if "generate_photo" in skill.tools:
@@ -349,9 +376,9 @@ class ModalitySkillEngine:
                     ref_types = [single]
 
             reference_images = []
-            if ref_types and self.tool_registry.has("get_reference_image"):
+            if ref_types and tool_registry.has("get_reference_image"):
                 for rt in ref_types:
-                    ref_result = await self.tool_registry.execute("get_reference_image", {
+                    ref_result = await tool_registry.execute("get_reference_image", {
                         "persona_id": persona.persona_id,
                         "reference_type": rt,
                     })
@@ -416,8 +443,11 @@ class ModalitySkillEngine:
         """
         import asyncio
         last_result = {}
+        if self.tool_registry is None:
+            return {"success": False, "error": "Tool registry is not configured"}
+        tool_registry = self.tool_registry
         for attempt in range(1, max_retries + 2):  # 1 initial + max_retries
-            result = await self.tool_registry.execute(tool_name, params)
+            result = await tool_registry.execute(tool_name, params)
             success = result.get("success", False)
             if not success:
                 success = bool(result.get("image_path") or result.get("audio_path"))

@@ -41,7 +41,7 @@ class BaseImageProvider(ABC):
         prompt: str,
         aspect_ratio: str = "",
         image_size: str = "1K",
-        reference_images: list = None,
+        reference_images: Optional[list] = None,
         **kwargs,
     ) -> ImageResult:
         """Generate an image from a text prompt.

@@ -15,20 +15,40 @@ import re
 
 
 # -- Modality Parsing --
-# No hardcoded map — registered SKILLs are the source of truth.
-# Parser only extracts the raw modality keyword from LLM output.
+_MODALITY_ALIASES = {
+    "文字": "文字",
+    "text": "文字",
+    "typing": "文字",
+    "语音": "语音",
+    "voice": "语音",
+    "audio": "语音",
+    "speech": "语音",
+    "静默": "静默",
+    "silence": "静默",
+    "silent": "静默",
+    "表情": "表情",
+    "emoji": "表情",
+    "sticker": "表情",
+    "照片": "照片",
+    "photo": "照片",
+    "image": "照片",
+    "selfie": "照片",
+    "多条拆分": "多条拆分",
+    "split": "多条拆分",
+    "multiple": "多条拆分",
+}
 
 def _parse_modality(raw: str) -> str:
     """Extract primary modality keyword from Actor output.
 
-    Returns the first token before any punctuation/space.
-    Skill engine decides if it maps to a registered skill.
+    Returns the canonical Chinese modality key used by the skill engine.
     """
-    import re
     cleaned = raw.strip().lstrip("\uff1a: \n")
     # Take first token before punctuation (。.，,、/ or whitespace)
     match = re.match(r'[\w\u4e00-\u9fff]+', cleaned)
-    return match.group(0) if match else "文字"
+    if not match:
+        return "文字"
+    return _MODALITY_ALIASES.get(match.group(0).lower(), "文字")
 
 
 # -- Section header regex: Chinese 【】 and English [] formats --

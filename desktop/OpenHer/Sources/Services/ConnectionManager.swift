@@ -11,6 +11,8 @@ final class ConnectionManager {
     }
 
     func startMonitoring() {
+        stopMonitoring()
+
         // Initial connection
         Task { await checkAndConnect() }
 

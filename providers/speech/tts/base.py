@@ -31,9 +31,17 @@ class TTSResult:
     success: bool
     audio_path: Optional[str] = None
     audio_bytes: Optional[bytes] = None
+    mime_type: str = ""
+    audio_format: str = ""
     provider: str = ""
     latency_ms: float = 0
     error: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not self.audio_format and self.audio_path:
+            self.audio_format = os.path.splitext(self.audio_path)[1].lstrip(".").lower()
+        if not self.mime_type and self.audio_format:
+            self.mime_type = _mime_type_for_audio_format(self.audio_format)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -66,3 +74,18 @@ class BaseTTSProvider(ABC):
         """Generate cache file path from key parts."""
         cache_key = hashlib.md5(key_parts.encode()).hexdigest()
         return os.path.join(self.cache_dir, f"{cache_key}.{ext}")
+
+
+def _mime_type_for_audio_format(audio_format: str) -> str:
+    """Return a stable MIME type for common audio formats."""
+    return {
+        "mp3": "audio/mpeg",
+        "mpeg": "audio/mpeg",
+        "wav": "audio/wav",
+        "wave": "audio/wav",
+        "webm": "audio/webm",
+        "ogg": "audio/ogg",
+        "m4a": "audio/mp4",
+        "aac": "audio/aac",
+        "pcm": "audio/L16",
+    }.get(audio_format.lower(), "application/octet-stream")

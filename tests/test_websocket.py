@@ -1,6 +1,6 @@
 """
 WebSocket integration test — Tests end-to-end chat via WebSocket protocol.
-Requires a running server at localhost:8800 and pytest-asyncio.
+Requires a running server at OPENHER_TEST_WS_URI or PORT (default 8000) and pytest-asyncio.
 Skipped gracefully if dependencies are missing or server not running.
 """
 import asyncio
@@ -27,6 +27,16 @@ except ImportError:
 # Use first available persona (dynamic, not hardcoded)
 _PERSONA_A = "vivian"
 _PERSONA_B = "luna"
+_WS_PORT = os.getenv("PORT", "8000")
+WS_URI = os.getenv("OPENHER_TEST_WS_URI", f"ws://127.0.0.1:{_WS_PORT}/ws/chat")
+
+
+def connect_local_ws(websockets_module, uri: str):
+    """Connect to localhost without honoring external proxy env vars."""
+    try:
+        return websockets_module.connect(uri, proxy=None)
+    except TypeError:
+        return websockets_module.connect(uri)
 
 
 @pytest.mark.asyncio
@@ -39,13 +49,13 @@ async def test_websocket():
     print("WebSocket E2E Test")
     print("=" * 60)
 
-    uri = "ws://localhost:8800/ws/chat"
+    uri = WS_URI
 
     try:
-        ws_conn = websockets.connect(uri)
+        ws_conn = connect_local_ws(websockets, uri)
         ws = await ws_conn.__aenter__()
     except (OSError, ConnectionRefusedError):
-        pytest.skip("Server not running at localhost:8800")
+        pytest.skip(f"Server not running at {uri}")
         return
 
     try:
@@ -70,6 +80,8 @@ async def test_websocket():
             elif msg["type"] == "chat_chunk":
                 full_response += msg["content"]
             elif msg["type"] == "chat_end":
+                if not full_response:
+                    full_response = msg.get("reply", "")
                 print(f"  💬 {_PERSONA_A}: {full_response}")
                 break
             elif msg["type"] == "error":
@@ -87,8 +99,16 @@ async def test_websocket():
             "user_name": "Tester",
         }))
 
-        raw = await asyncio.wait_for(ws.recv(), timeout=5)
-        msg = json.loads(raw)
+        msg = {}
+        for _ in range(10):
+            raw = await asyncio.wait_for(ws.recv(), timeout=5)
+            msg = json.loads(raw)
+            if msg["type"] == "persona_switched":
+                break
+            if msg["type"] in {"chat_start", "chat_chunk", "chat_end", "silence"}:
+                continue
+            if msg["type"] == "error":
+                raise AssertionError(msg.get("content", "unknown websocket error"))
         assert msg["type"] == "persona_switched"
         print(f"  ✅ Switched: {msg['persona']}, session: {msg['session_id']}")
 
@@ -109,6 +129,8 @@ async def test_websocket():
             elif msg["type"] == "chat_chunk":
                 full_response += msg["content"]
             elif msg["type"] == "chat_end":
+                if not full_response:
+                    full_response = msg.get("reply", "")
                 print(f"  💬 {_PERSONA_B}: {full_response}")
                 break
 

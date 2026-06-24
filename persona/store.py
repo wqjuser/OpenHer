@@ -188,7 +188,12 @@ class PersonaStore:
 
     def list_all(self) -> List[PersonaProfile]:
         """列出所有角色"""
-        return [self.load(pid) for pid in self.list_ids() if self.load(pid)]
+        profiles: List[PersonaProfile] = []
+        for pid in self.list_ids():
+            profile = self.load(pid)
+            if profile:
+                profiles.append(profile)
+        return profiles
 
     def delete(self, persona_id: str):
         """删除角色"""

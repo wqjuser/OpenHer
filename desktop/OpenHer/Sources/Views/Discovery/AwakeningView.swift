@@ -170,11 +170,10 @@ struct AwakeningView: View {
     // MARK: - Setup
 
     private func setupAwakening() {
-        let baseURL = appState.serverURL
         // Use cached front image immediately (from PersonaCard) to prevent white flash
         if let cached = appState.cachedFrontImages[persona.personaId] {
             self.baseNSImage = cached
-        } else if persona.hasFront, let url = URL(string: "\(baseURL)/api/persona/\(persona.personaId)/media/front") {
+        } else if persona.hasFront, let url = appState.authenticatedMediaURL(path: "/api/persona/\(persona.personaId)/media/front") {
             // Fallback: download if not in cache
             URLSession.shared.dataTask(with: url) { data, _, _ in
                 if let data = data, let img = NSImage(data: data) {
@@ -185,8 +184,7 @@ struct AwakeningView: View {
 
         // Load awakening video from backend API
         if persona.hasAwakeningVideo {
-            let videoURLString = "\(appState.serverURL)/api/persona/\(persona.personaId)/media/awakening"
-            if let videoURL = URL(string: videoURLString) {
+            if let videoURL = appState.authenticatedMediaURL(path: "/api/persona/\(persona.personaId)/media/awakening") {
                 let asset = AVURLAsset(url: videoURL)
                 let playerItem = AVPlayerItem(asset: asset)
                 let avPlayer = AVPlayer(playerItem: playerItem)

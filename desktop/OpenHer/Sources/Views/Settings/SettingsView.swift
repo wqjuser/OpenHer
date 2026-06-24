@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var appState: AppState
     @AppStorage("serverURL") private var serverURL = "http://localhost:8000"
+    @AppStorage("apiToken") private var apiToken = ""
 
     var body: some View {
         Form {
@@ -11,8 +12,11 @@ struct SettingsView: View {
                 TextField("URL", text: $serverURL)
                     .textFieldStyle(.roundedBorder)
 
+                SecureField(L10n.str("访问令牌（可选）", en: "API token (optional)"), text: $apiToken)
+                    .textFieldStyle(.roundedBorder)
+
                 Button(L10n.str("保存并重连", en: "Save & Reconnect")) {
-                    appState.updateServerURL(serverURL)
+                    appState.updateServerConfig(url: serverURL, apiToken: apiToken)
                 }
                 .foregroundStyle(Paper.coral)
             }
@@ -41,6 +45,6 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 360, height: 260)
+        .frame(width: 360, height: 300)
     }
 }

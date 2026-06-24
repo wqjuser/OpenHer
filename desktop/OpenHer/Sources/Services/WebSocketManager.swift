@@ -23,7 +23,12 @@ final class WebSocketManager: ObservableObject {
         guard let url = URL(string: "\(wsURL)/ws/chat") else { return }
 
         let session = URLSession(configuration: .default)
-        webSocketTask = session.webSocketTask(with: url)
+        var request = URLRequest(url: url)
+        let apiToken = appState.apiToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !apiToken.isEmpty {
+            request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
+        }
+        webSocketTask = session.webSocketTask(with: request)
         webSocketTask?.resume()
 
         appState.isConnected = true

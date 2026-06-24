@@ -11,24 +11,21 @@ Provides:
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import os
 import time
-import uuid
-from typing import Optional
+from contextlib import asynccontextmanager
+from typing import Any, Optional, cast
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from fastapi.responses import FileResponse, JSONResponse
 
 import uuid as _uuid
 
 from persona import PersonaLoader
-from providers.llm import LLMClient, ChatMessage
+from providers.llm import LLMClient
 from agent.chat_agent import ChatAgent
 from providers.media.tts_engine import TTSEngine, TTSProvider
 from agent.skills import TaskSkillEngine, ModalitySkillEngine
@@ -36,15 +33,35 @@ from agent.skills.tool_registry import ToolRegistry
 from agent.skills.tools.photo_tools import register_photo_tools
 from agent.skills.tools.voice_tools import register_voice_tools
 from agent.skills.tools.split_tools import register_split_tools
+from engine.path_security import safe_child_path
 from engine.state_store import StateStore
 from engine.chat_log_store import ChatLogStore
 from memory.memory_store import MemoryStore
 from providers.memory.evermemos.evermemos_client import EverMemOSClient
 from providers.api_config import get_llm_config, get_tts_config, get_memory_config
 from agent.cron_scheduler import CronScheduler
-from agent.output_router import stream_to_ws as _stream_to_ws
 from engine.genome import DRIVE_LABELS
-from agent.demo_controller import DemoController
+from server.errors import external_error_detail as _external_error_detail
+from server.errors import redact_known_secrets as _redact_known_secrets
+from server.demo_inject import (
+    DemoClientNotConnected,
+    DemoInjectSendFailed,
+    DemoInjectService,
+    MissingDemoInjectFields,
+)
+from server.media import audio_format_for_path as _audio_format_for_path
+from server.media import media_type_for_file as _media_type_for_file
+from server.schemas import ChatRequest, PersonaInfo
+from server.security import cors_origins_from_env as _cors_origins_from_env
+from server.security import request_has_api_token as _request_has_api_token
+from server.session_manager import SessionManager
+from server.proactive_service import ProactiveService, default_proactive_metrics
+from server.static import register_spa_routes
+from server.websocket_registry import WebSocketConnectionRegistry
+from server.websocket_chat import WebSocketChatTurnService
+from server.websocket_persona_switch import WebSocketPersonaSwitchService
+from server.websocket_demo import WebSocketDemoCommandService, WebSocketDemoProactiveService
+from server.ws_tts import WebSocketTTSService
 
 # ──────────────────────────────────────────────────────────────
 # Load env
@@ -52,42 +69,73 @@ from agent.demo_controller import DemoController
 
 load_dotenv(override=True)  # override=True: .env values take precedence over shell exports
 
+
 # ──────────────────────────────────────────────────────────────
 # App setup
 # ──────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await startup()
+    try:
+        yield
+    finally:
+        await shutdown()
+
 
 app = FastAPI(
     title="OpenHer",
     description="AI Companion Server — Genome v10 Hybrid Engine",
     version="0.5.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins_from_env(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def require_api_token(request: Request, call_next):
+    """Require a bearer token when OPENHER_API_TOKEN is configured."""
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    if not _request_has_api_token(
+        request.headers.get("Authorization"),
+        request.query_params.get("token"),
+    ):
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+    return await call_next(request)
+
+
 # ──────────────────────────────────────────────────────────────
 # Global services (initialized at startup)
 # ──────────────────────────────────────────────────────────────
 
-persona_loader: PersonaLoader = None
-llm_client: LLMClient = None
-tts_engine: TTSEngine = None
-task_skill_engine: TaskSkillEngine = None
-modality_skill_engine: ModalitySkillEngine = None
-state_store: StateStore = None
-chat_log_store: ChatLogStore = None
-memory_store: MemoryStore = None
-evermemos: EverMemOSClient = None
-cron_scheduler: CronScheduler = None
+persona_loader: PersonaLoader = cast(PersonaLoader, None)
+llm_client: LLMClient = cast(LLMClient, None)
+tts_engine: TTSEngine = cast(TTSEngine, None)
+task_skill_engine: TaskSkillEngine = cast(TaskSkillEngine, None)
+modality_skill_engine: ModalitySkillEngine = cast(ModalitySkillEngine, None)
+state_store: StateStore = cast(StateStore, None)
+chat_log_store: ChatLogStore = cast(ChatLogStore, None)
+memory_store: MemoryStore = cast(MemoryStore, None)
+evermemos: EverMemOSClient = cast(EverMemOSClient, None)
+cron_scheduler: CronScheduler = cast(CronScheduler, None)
+session_manager: SessionManager = cast(SessionManager, None)
+proactive_service: ProactiveService = cast(ProactiveService, None)
+ws_registry = WebSocketConnectionRegistry()
+demo_inject_service = DemoInjectService(ws_registry)
+ws_demo_proactive_service = WebSocketDemoProactiveService()
+ws_demo_command_service: WebSocketDemoCommandService = cast(WebSocketDemoCommandService, None)
+ws_chat_turn_service: WebSocketChatTurnService = cast(WebSocketChatTurnService, None)
+persona_switch_service: WebSocketPersonaSwitchService = cast(WebSocketPersonaSwitchService, None)
+ws_tts_service: WebSocketTTSService = cast(WebSocketTTSService, None)
 genome_data_dir: str = ""
-
-# Active chat sessions: session_id → (ChatAgent, last_active_time)
-active_sessions: dict[str, tuple[ChatAgent, float]] = {}
 
 # Session TTL: auto-clean sessions older than 30 minutes
 SESSION_TTL_SECONDS = 30 * 60
@@ -97,33 +145,12 @@ _proactive_task: Optional[asyncio.Task] = None
 _INSTANCE_ID = str(_uuid.uuid4())[:8]  # unique per server instance
 _PROACTIVE_INTERVAL = 300  # seconds between heartbeat sweeps
 
-# WebSocket connections: session_id → set of WebSocket (supports multiple clients per session)
-_ws_connections: dict[str, set] = {}
-# Secondary index: client_id → set of WebSocket (for demo inject API)
-_ws_by_client: dict[str, object] = {}  # client_id → latest WebSocket
-
-# Proactive config (loaded from memory_config.yaml in startup)
-_proactive_cfg: dict = {}
-
-# Proactive metrics (online observability)
-_proactive_metrics = {
-    'ticks_total': 0,       # total proactive_tick() calls
-    'impulse_triggered': 0, # _has_impulse() returned non-None
-    'silence_chosen': 0,    # Actor chose 静默
-    'outbox_enqueued': 0,   # messages entered outbox
-    'outbox_blocked': 0,    # blocked by 3-layer guard
-    'ws_push_ok': 0,        # WebSocket push succeeded
-    'ws_push_fail': 0,      # WebSocket push failed (offline or error)
-    'outbox_delivered': 0,  # final delivered count
-    'outbox_retries': 0,    # retry attempts (re-delivery of failed messages)
-}
-
-
-@app.on_event("startup")
 async def startup():
     """Initialize all services on server start."""
     global persona_loader, llm_client, tts_engine, task_skill_engine, modality_skill_engine
     global state_store, chat_log_store, memory_store, evermemos, cron_scheduler, genome_data_dir
+    global session_manager, proactive_service, persona_switch_service, ws_tts_service, ws_chat_turn_service
+    global ws_demo_command_service
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -143,6 +170,7 @@ async def startup():
 
     # 3. Create TTS engine (config/api.yaml → env var override)
     tts_cfg = get_tts_config()
+    tts_available = bool(tts_cfg.get("available", False))
     tts_engine = TTSEngine(
         provider=TTSProvider(tts_cfg["provider"]),
         cache_dir=os.path.join(base_dir, tts_cfg["cache_dir"]),
@@ -151,11 +179,21 @@ async def startup():
         minimax_api_key=tts_cfg["api_keys"].get("minimax"),
         minimax_model=tts_cfg.get("minimax_model", "speech-2.8-turbo"),
     )
+    if tts_available:
+        ws_tts_service = WebSocketTTSService(tts_engine=tts_engine)
+    else:
+        ws_tts_service = cast(WebSocketTTSService, None)
+        missing_key = tts_cfg.get("missing_key_env") or f"{tts_cfg['provider'].upper()}_API_KEY"
+        print(
+            f"⚠ TTS provider '{tts_cfg['provider']}' 未配置 {missing_key}，"
+            "已禁用语音技能和 WebSocket TTS"
+        )
 
     # 4. Load skills (dual engine architecture)
     tool_registry = ToolRegistry()
     register_photo_tools(tool_registry)
-    register_voice_tools(tool_registry)
+    if tts_available:
+        register_voice_tools(tool_registry)
     register_split_tools(tool_registry)
     print(f"✓ 注册了 {len(tool_registry.tool_names)} 个工具: {tool_registry.tool_names}")
 
@@ -197,8 +235,35 @@ async def startup():
         if evermemos.available:
             await evermemos.verify_connection()
     else:
-        evermemos = None
+        evermemos = cast(EverMemOSClient, None)
         print("ℹ EverMemOS: 未配置或已禁用，使用本地 MemoryStore")
+
+    session_manager = SessionManager(
+        persona_loader=persona_loader,
+        llm_client=llm_client,
+        task_skill_engine=task_skill_engine,
+        modality_skill_engine=modality_skill_engine,
+        memory_store=memory_store,
+        state_store=state_store,
+        evermemos=evermemos,
+        genome_data_dir=genome_data_dir,
+        ttl_seconds=SESSION_TTL_SECONDS,
+    )
+    persona_switch_service = WebSocketPersonaSwitchService(
+        registry=ws_registry,
+        get_or_create_session=get_or_create_session,
+        remove_session=remove_session,
+    )
+    ws_chat_turn_service = WebSocketChatTurnService(
+        registry=ws_registry,
+        get_or_create_session=get_or_create_session,
+        chat_log_store=chat_log_store,
+    )
+    ws_demo_command_service = WebSocketDemoCommandService(
+        get_or_create_session=get_or_create_session,
+        presets_file=os.path.join(base_dir, "demo", "presets", "showcase.yaml"),
+        proactive_delivery=ws_demo_proactive_service,
+    )
 
     # 8. Cron scheduler
     if cron_skills:
@@ -208,13 +273,8 @@ async def startup():
         cron_scheduler.register_skills(cron_skills, persona_ids=list(personas.keys()))
         cron_scheduler.start()
 
-    # 9. Mount static files
-    static_dir = os.path.join(base_dir, "static")
-    if os.path.isdir(static_dir):
-        app.mount("/static", StaticFiles(directory=static_dir), name="static")
-
-    # 10. Load proactive config + start heartbeat loop
-    global _proactive_task, _proactive_cfg
+    # 9. Load proactive config + start heartbeat loop
+    global _proactive_task
     try:
         import yaml as _yaml_cfg
         from pathlib import Path as _PathCfg
@@ -222,18 +282,27 @@ async def startup():
         _cfg_raw = _yaml_cfg.safe_load(_cfg_path.read_text()).get("evermemos", {}) if _cfg_path.exists() else {}
     except Exception:
         _cfg_raw = {}
-    _proactive_cfg = {
+    proactive_config = {
         'cooldown_hours': _cfg_raw.get('proactive_cooldown_hours', 4),
         'max_pending': _cfg_raw.get('proactive_max_pending', 3),
         'lock_ttl': _cfg_raw.get('proactive_lock_ttl_sec', 600),
     }
-    _proactive_task = asyncio.create_task(_proactive_heartbeat_loop())
-    print(f"✓ 主动消息心跳已启动 (cooldown={_proactive_cfg['cooldown_hours']}h, ttl={_proactive_cfg['lock_ttl']}s)")
+    proactive_service = ProactiveService(
+        state_store=state_store,
+        session_manager=session_manager,
+        evermemos=evermemos,
+        ws_connections=ws_registry.session_connections,
+        persist_agent=_persist_agent,
+        instance_id=_INSTANCE_ID,
+        config=proactive_config,
+        interval_seconds=_PROACTIVE_INTERVAL,
+    )
+    _proactive_task = asyncio.create_task(proactive_service.heartbeat_loop())
+    print(f"✓ 主动消息心跳已启动 (cooldown={proactive_config['cooldown_hours']}h, ttl={proactive_config['lock_ttl']}s)")
 
     print("✓ OpenHer 服务启动完成 (v0.5.0 — Genome v10 Hybrid Engine)")
 
 
-@app.on_event("shutdown")
 async def shutdown():
     """Save all active sessions and close DBs."""
     # Stop proactive heartbeat
@@ -246,8 +315,8 @@ async def shutdown():
     if cron_scheduler:
         cron_scheduler.stop()
     if state_store:
-        for sid, (agent, _) in active_sessions.items():
-            _persist_agent(agent)
+        if session_manager:
+            session_manager.persist_all()
         state_store.close()
     if memory_store:
         memory_store.close()
@@ -261,7 +330,7 @@ async def shutdown():
                 persona_id=agent.persona.persona_id,
                 group_id=agent._group_id,
             )
-            for _, (agent, _) in active_sessions.items()
+            for agent in session_manager.active_agents()
         ]
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -304,232 +373,40 @@ async def _cron_deliver_message(persona_id: str, skill_id: str, message: str) ->
 # ──────────────────────────────────────────────────────────────
 
 async def _proactive_heartbeat_loop():
-    """
-    Background loop: sweep active sessions, run proactive_tick,
-    enqueue results to outbox, deliver pending messages.
-    """
-    await asyncio.sleep(60)  # Initial delay: let sessions warm up
-    while True:
-        try:
-            await _proactive_sweep()
-        except Exception as e:
-            print(f"[proactive] ❌ heartbeat error: {e}")
-        await asyncio.sleep(_PROACTIVE_INTERVAL)
+    """Compatibility wrapper for the proactive service loop."""
+    if not proactive_service:
+        return
+    await proactive_service.heartbeat_loop()
 
 
 async def _proactive_sweep():
-    """One sweep: generate new proactive messages + retry pending outbox."""
-    if not state_store or not active_sessions:
-        return
-
-    cooldown_h = _proactive_cfg.get('cooldown_hours', 4)
-    max_pending = _proactive_cfg.get('max_pending', 3)
-    lock_ttl = _proactive_cfg.get('lock_ttl', 600)
-
-    for sid, (agent, _last) in list(active_sessions.items()):
-        uid = agent.user_id
-        pid = agent.persona.persona_id
-
-        # Cross-instance lock (R7/R23/R28)
-        if not state_store.try_acquire_lock(uid, pid, _INSTANCE_ID, ttl=lock_ttl):
-            continue
-
-        try:
-            # ── Phase 1: Generate new proactive message ──
-            _proactive_metrics['ticks_total'] += 1
-            result = await agent.proactive_tick()
-            if result is not None:
-                _proactive_metrics['impulse_triggered'] += 1
-                drive_id = result.get('drive_id', 'unknown')
-                depth = agent._relationship_ema.get('relationship_depth', 0.0)
-                band = 'deep' if depth > 0.6 else 'mid' if depth > 0.3 else 'shallow'
-                bucket = int(time.time() // (cooldown_h * 3600))
-                dedup_key = f"{drive_id}:{band}:{bucket}"
-
-                if state_store.outbox_can_enqueue(
-                    uid, pid, dedup_key,
-                    cooldown_hours=cooldown_h, max_pending=max_pending,
-                ):
-                    state_store.outbox_insert(
-                        uid, pid, result['tick_id'],
-                        result['reply'], result.get('modality', '文字'),
-                        result.get('monologue', ''), drive_id, dedup_key,
-                    )
-                    _proactive_metrics['outbox_enqueued'] += 1
-                else:
-                    _proactive_metrics['outbox_blocked'] += 1
-                    print(f"  [proactive] 🛑 outbox guard blocked: {dedup_key}")
-            elif result is None and agent._has_impulse():
-                # Had impulse but Actor chose silence
-                _proactive_metrics['silence_chosen'] += 1
-
-            # ── Phase 2: Deliver all pending messages (incl. retries) ──
-            pending = state_store.outbox_get_pending(uid, pid)
-            for row in pending:
-                is_retry = row.get('status') == 'pending' and row['tick_id'] != (result or {}).get('tick_id')
-                if is_retry:
-                    _proactive_metrics['outbox_retries'] += 1
-                await _deliver_proactive_msg(agent, sid, row)
-
-            # ── Persist proactive state via CAS (Bug 4) ──
-            _persist_agent(agent)
-
-        finally:
-            state_store.release_lock(uid, pid, _INSTANCE_ID)
+    """Compatibility wrapper for one proactive service sweep."""
+    if proactive_service:
+        await proactive_service.sweep()
 
 
 async def _deliver_proactive_msg(agent: ChatAgent, session_id: str, row: dict):
-    """Deliver one proactive message: outbox SM + engine re-process + WebSocket push + EverMemOS."""
-    uid = row['user_id']
-    pid = row['persona_id']
-    tick_id = row['tick_id']
-    raw_reply = row['reply']
-    drive_id = row.get('drive_id', '')
-
-    # Outbox: pending → sending (R31)
-    msg = state_store.outbox_try_send(uid, pid, tick_id)
-    if not msg:
-        return  # Already taken by another instance
-
-    # ── Re-process through full persona engine (Feel→Express→SKILL) ──
-    stimulus = f"[系统指令] 你现在想主动对用户说话。以下是你想表达的内容，请用你认为的方式表达出来：\n{raw_reply}"
-    try:
-        engine_result = await agent.chat(stimulus, is_proactive=True)
-        reply = engine_result.get('reply', raw_reply)
-        modality = engine_result.get('modality', '文字')
-        segments = engine_result.get('segments')
-        delays_ms = engine_result.get('delays_ms')
-        print(f"  [proactive] 🔄 engine re-processed: modality={modality}, segments={len(segments) if segments else 0}")
-    except Exception as e:
-        print(f"  [proactive] ⚠ engine re-process failed, using raw reply: {e}")
-        reply = raw_reply
-        modality = row.get('modality', '文字')
-        segments = None
-        delays_ms = None
-
-    # ── Push to user via WebSocket ──
-    ws_set = _ws_connections.get(session_id, set())
-    if not ws_set:
-        state_store.outbox_mark_failed(uid, pid, tick_id)
-        return
-
-    try:
-        for _pw in list(ws_set):
-            try:
-                if segments and len(segments) > 1:
-                    # Deliver as separate chat bubbles (same as normal chat)
-                    for i, seg in enumerate(segments):
-                        if i > 0:
-                            await _pw.send_json({
-                                "type": "chat_start",
-                                "session_id": session_id,
-                            })
-                            delay = delays_ms[i] if delays_ms and i < len(delays_ms) else 300
-                            await asyncio.sleep(max(delay, 300) / 1000.0)
-                        await _pw.send_json({
-                            "type": "chat_end",
-                            "reply": seg,
-                            "modality": modality,
-                            "proactive": True,
-                            "drive": drive_id,
-                            "persona": agent.persona.name,
-                        })
-                else:
-                    await _pw.send_json({
-                        "type": "proactive",
-                        "content": reply,
-                        "modality": modality,
-                        "drive": drive_id,
-                        "persona": agent.persona.name,
-                    })
-            except Exception:
-                ws_set.discard(_pw)
-        print(f"  [proactive] 📨 WS pushed to {len(ws_set)} client(s): {reply[:40]}")
-        _proactive_metrics['ws_push_ok'] += 1
-    except Exception as ws_err:
-        print(f"  [proactive] WS push failed: {ws_err}")
-        _proactive_metrics['ws_push_fail'] += 1
-        state_store.outbox_mark_failed(uid, pid, tick_id)
-        return
-
-    # WS push succeeded → store in EverMemOS (idempotent, R25)
-    try:
-        if evermemos and evermemos.available:
-            await evermemos.store_proactive_turn(
-                persona_id=pid,
-                persona_name=agent.persona.name,
-                group_id=agent._group_id,
-                reply=reply,
-                tick_id=tick_id,
-            )
-    except Exception as e:
-        print(f"  [proactive] EverMemOS store failed (non-fatal): {e}")
-
-    # Only mark delivered after successful WS push
-    state_store.outbox_mark_delivered(uid, pid, tick_id)
-    _proactive_metrics['outbox_delivered'] += 1
-    print(f"  [proactive] ✅ delivered: {reply[:40]}")
+    """Compatibility wrapper for proactive service delivery."""
+    if not proactive_service:
+        raise RuntimeError("Proactive service is not initialized")
+    await proactive_service.deliver_message(agent, session_id, row)
 
 
 @app.get("/api/proactive/metrics")
 async def proactive_metrics():
     """Proactive messaging observability: rates and counters."""
-    m = dict(_proactive_metrics)
-    total = m['ticks_total'] or 1  # avoid div-by-zero
-    m['impulse_rate'] = round(m['impulse_triggered'] / total, 4)
-    m['silence_rate'] = round(m['silence_chosen'] / max(m['impulse_triggered'], 1), 4)
-    ws_total = m['ws_push_ok'] + m['ws_push_fail'] or 1
-    m['ws_success_rate'] = round(m['ws_push_ok'] / ws_total, 4)
-    return m
+    if proactive_service:
+        return proactive_service.metrics_snapshot()
+    return default_proactive_metrics()
 
 
 # ── Serve React SPA ──
-_base_dir = os.path.dirname(os.path.abspath(__file__))
-_static_dir = os.path.join(_base_dir, "static")
-_assets_dir = os.path.join(_static_dir, "assets")
-
-if os.path.isdir(_assets_dir):
-    app.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
-
-@app.get("/", include_in_schema=False)
-@app.get("/app", include_in_schema=False)
-@app.get("/discover", include_in_schema=False)
-@app.get("/chat/{path:path}", include_in_schema=False)
-async def serve_spa(path: str = ""):
-    """Serve React SPA — all frontend routes return index.html."""
-    html_path = os.path.join(_static_dir, "index.html")
-    if not os.path.exists(html_path):
-        return HTMLResponse("<h1>Please run: cd web && npm run build</h1>", status_code=503)
-    return HTMLResponse(open(html_path, encoding="utf-8").read())
+register_spa_routes(app, os.path.dirname(os.path.abspath(__file__)))
 
 
 # ──────────────────────────────────────────────────────────────
 # Message Protocol
 # ──────────────────────────────────────────────────────────────
-
-class ChatRequest(BaseModel):
-    """REST API chat request."""
-    message: str
-    persona_id: str  # required, no default
-    session_id: Optional[str] = None
-    user_name: Optional[str] = None
-    client_id: Optional[str] = None  # display-layer identity for chat log
-
-
-class PersonaInfo(BaseModel):
-    """Persona info response."""
-    persona_id: str
-    name: str
-    name_zh: Optional[str] = None
-    age: Optional[int]
-    gender: str
-    mbti: Optional[str]
-    tags: list[str]
-    tags_zh: list[str] = []
-    description: str
-    avatar_url: Optional[str] = None
-    has_front: bool = False           # has idimage/front.png
-    has_awakening_video: bool = False  # has idimage/awakening.mp4
 
 
 # ──────────────────────────────────────────────────────────────
@@ -537,68 +414,14 @@ class PersonaInfo(BaseModel):
 # ──────────────────────────────────────────────────────────────
 
 def _persist_agent(agent: ChatAgent) -> None:
-    """Save agent state via CAS with bootstrap fallback."""
-    if not state_store:
-        return
-    import json as _json
-    agent_data = _json.dumps(agent.agent.to_dict(), ensure_ascii=False)
-    metabolism_data = _json.dumps(agent.metabolism.to_dict(), ensure_ascii=False)
-
-    ok = state_store.save_state(
-        user_id=agent.user_id,
-        persona_id=agent.persona.persona_id,
-        agent_data=agent_data,
-        metabolism_data=metabolism_data,
-        last_active_at=agent._last_active,
-        interaction_cadence=agent._interaction_cadence,
-        expected_version=agent._state_version,
-    )
-    if ok:
-        agent._state_version += 1
-    else:
-        # CAS miss: either stale version or row doesn't exist yet.
-        # Check if row exists to distinguish bootstrap vs conflict.
-        _, _, db_ver = state_store.load_proactive_meta(agent.user_id, agent.persona.persona_id)
-        if db_ver == 0 and agent._state_version == 0:
-            # Bootstrap: first write, no row exists. Use UPSERT (no CAS).
-            state_store.save_state(
-                user_id=agent.user_id,
-                persona_id=agent.persona.persona_id,
-                agent_data=agent_data,
-                metabolism_data=metabolism_data,
-                last_active_at=agent._last_active,
-                interaction_cadence=agent._interaction_cadence,
-                expected_version=None,  # UPSERT, no version check
-            )
-            # Read actual DB version after write (INSERT = 0, ON CONFLICT = n+1)
-            _, _, actual_v = state_store.load_proactive_meta(agent.user_id, agent.persona.persona_id)
-            agent._state_version = actual_v
-        else:
-            # True conflict: another writer updated. Sync version.
-            agent._state_version = db_ver
-            print(f"  [persist] CAS conflict {agent.user_id}/{agent.persona.persona_id}, synced v={db_ver}")
+    """Compatibility wrapper for session-manager persistence."""
+    if session_manager:
+        session_manager.persist_agent(agent)
 
 
 def _cleanup_expired_sessions() -> int:
-    """Remove sessions that haven't been active for SESSION_TTL_SECONDS."""
-    now = time.time()
-    expired = []
-    for sid, (agent, last_active) in active_sessions.items():
-        if now - last_active > SESSION_TTL_SECONDS:
-            _persist_agent(agent)
-            # Flush EverMemOS memory (fire-and-forget from sync context)
-            if evermemos and evermemos.available:
-                asyncio.create_task(
-                    evermemos.close_session(
-                        user_id=agent.evermemos_uid,
-                        persona_id=agent.persona.persona_id,
-                        group_id=agent._group_id,
-                    )
-                )
-            expired.append(sid)
-    for sid in expired:
-        del active_sessions[sid]
-    return len(expired)
+    """Compatibility wrapper for session-manager TTL cleanup."""
+    return session_manager.cleanup_expired_sessions() if session_manager else 0
 
 
 def get_or_create_session(
@@ -607,107 +430,16 @@ def get_or_create_session(
     user_name: Optional[str] = None,
     client_id: Optional[str] = None,
 ) -> tuple[str, ChatAgent]:
-    """Get existing session or create a new one (with state hydration)."""
-    now = time.time()
-
-    # Return existing session
-    if session_id and session_id in active_sessions:
-        agent, _ = active_sessions[session_id]
-        active_sessions[session_id] = (agent, now)
-        return session_id, agent
-
-    # Try to find existing session by (persona_id, client_id) — allows
-    # multiple WS clients (e.g. UI + demo script) to share one session
-    if not session_id and client_id:
-        for sid_candidate, (agent_candidate, _ts) in active_sessions.items():
-            if (hasattr(agent_candidate, 'persona') and
-                agent_candidate.persona and
-                getattr(agent_candidate.persona, 'id', None) == persona_id):
-                print(f"  [session] ♻️ reusing session {sid_candidate} for {persona_id}/{client_id[:8]}")
-                active_sessions[sid_candidate] = (agent_candidate, now)
-                return sid_candidate, agent_candidate
-
-    # Periodic cleanup
-    _cleanup_expired_sessions()
-
-    # Create new session
-    sid = session_id or str(uuid.uuid4())[:8]
-    persona = persona_loader.get(persona_id)
-    if not persona:
-        raise ValueError(f"角色 '{persona_id}' 不存在")
-
-    # Use persona_id hash as seed for deterministic personality per persona
-    genome_seed = hash(persona_id) % 100000
-
-    # Use user_name as stable user_id for EverMemOS cross-session identity.
-    # Fallback to session_id (sid) if no user_name provided.
-    stable_user_id = user_name if user_name else sid
-
-    agent = ChatAgent(
-        persona=persona,
-        llm=llm_client,
-        user_id=stable_user_id,
-        user_name=user_name,
-        skills_prompt=None,
-        task_skill_engine=task_skill_engine,
-        modality_skill_engine=modality_skill_engine,
-        memory_store=memory_store,
-        genome_seed=genome_seed,
-        genome_data_dir=genome_data_dir,
-        evermemos=evermemos,
-    )
-
-    # Hydrate from persisted state (if available)
-    is_new_agent = True
-    if state_store:
-        saved_agent, saved_metabolism = state_store.load_session(stable_user_id, persona_id)
-        if saved_agent:
-            agent.agent = saved_agent
-            is_new_agent = False
-            print(f"  ↳ 恢复 Agent: age={saved_agent.age}, interactions={saved_agent.interaction_count}")
-        if saved_metabolism:
-            agent.metabolism = saved_metabolism
-            print(f"  ↳ 恢复代谢: total_frustration={saved_metabolism.total():.2f}")
-        # Bug 4: Load proactive meta (last_active, cadence, state_version)
-        la, cad, sv = state_store.load_proactive_meta(stable_user_id, persona_id)
-        if la > 0:
-            agent._last_active = la
-            agent._interaction_cadence = cad
-            agent._state_version = sv
-            print(f"  ↳ 恢复 proactive: last_active={la:.0f}, cadence={cad:.0f}s, v={sv}")
-
-    # V10 Pre-warm: only for genuinely new agents (no saved state).
-    # Must run AFTER state restore so we don't waste 60 steps on agents
-    # that will immediately have their weights overwritten.
-    if is_new_agent:
-        agent.pre_warm()
-        print(f"  ↳ 新 Agent 预热: 60步完成 (seed={genome_seed})")
-
-    # ── Restore chat history from DB (Layer 1: Working Memory) ──
-    if chat_log_store and client_id:
-        rows = chat_log_store.load_messages(
-            client_id=client_id,
-            persona_id=persona_id,
-            limit=agent.max_history,
-        )
-        if rows:
-            agent.history = [
-                ChatMessage(role=r["role"], content=r["content"])
-                for r in rows
-            ]
-            print(f"  ↳ 恢复聊天历史: {len(agent.history)} 条消息")
-
-
-    active_sessions[sid] = (agent, now)
-    return sid, agent
+    """Compatibility wrapper for session-manager get-or-create."""
+    if not session_manager:
+        raise RuntimeError("Session manager is not initialized")
+    return session_manager.get_or_create(session_id, persona_id, user_name, client_id)
 
 
 def remove_session(session_id: str) -> None:
-    """Persist and remove a session."""
-    if session_id and session_id in active_sessions:
-        agent, _ = active_sessions.pop(session_id)
-        _persist_agent(agent)
-        print(f"  ↳ 会话 {session_id} 已保存并清理")
+    """Compatibility wrapper for session-manager removal."""
+    if session_manager:
+        session_manager.remove(session_id)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -722,7 +454,7 @@ async def api_status():
         "engine": "Genome v10",
         "status": "running",
         "personas": persona_loader.list_ids() if persona_loader else [],
-        "active_sessions": len(active_sessions),
+        "active_sessions": session_manager.active_count if session_manager else 0,
     }
 
 
@@ -779,10 +511,10 @@ async def get_persona_media(persona_id: str, media_type: str):
     if media_type not in _media_map:
         raise HTTPException(status_code=400, detail=f"Unknown media type: {media_type}")
     _personas_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "persona", "personas")
-    for filename, mime in _media_map[media_type]:
+    for filename, _mime in _media_map[media_type]:
         file_path = os.path.join(_personas_dir, persona_id, "idimage", filename)
         if os.path.isfile(file_path):
-            return FileResponse(file_path, media_type=mime)
+            return FileResponse(file_path, media_type=_media_type_for_file(file_path))
     raise HTTPException(status_code=404, detail=f"Media not found: {persona_id}/{media_type}")
 
 
@@ -795,7 +527,15 @@ async def chat_api(req: ChatRequest):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    result = await agent.chat(req.message)
+    try:
+        result = await agent.chat(req.message)
+    except Exception as e:
+        print(f"  [chat_api] provider error: {type(e).__name__}: {str(e)[:200]}")
+        raise HTTPException(
+            status_code=502,
+            detail=_external_error_detail("Chat provider failed", e),
+        )
+
     status = agent.get_status()
 
     _persist_agent(agent)
@@ -824,7 +564,7 @@ async def chat_api(req: ChatRequest):
 
 @app.get("/api/session/{session_id}/status")
 async def session_status(session_id: str):
-    entry = active_sessions.get(session_id)
+    entry = session_manager.get_entry(session_id) if session_manager else None
     if not entry:
         raise HTTPException(status_code=404, detail="Session not found")
     agent, _ = entry
@@ -855,20 +595,31 @@ async def tts_api(
     if not text:
         raise HTTPException(status_code=400, detail="Text is required")
 
-    result = await tts_engine.synthesize(
-        text=text,
-        voice_preset=voice,
-        emotion_instruction=emotion or None,
-    )
+    try:
+        result = await tts_engine.synthesize(
+            text=text,
+            voice_preset=voice,
+            emotion_instruction=emotion or None,
+        )
+    except Exception as e:
+        print(f"  [tts_api] provider error: {type(e).__name__}: {str(e)[:200]}")
+        raise HTTPException(
+            status_code=502,
+            detail=_external_error_detail("TTS provider failed", e),
+        )
 
     if result.success and result.audio_path:
+        audio_format = result.audio_format or _audio_format_for_path(result.audio_path)
         return FileResponse(
             result.audio_path,
-            media_type="audio/mpeg",
-            filename="speech.mp3",
+            media_type=result.mime_type or "application/octet-stream",
+            filename=f"speech.{audio_format}",
         )
     else:
-        raise HTTPException(status_code=500, detail=result.error or "TTS failed")
+        raise HTTPException(
+            status_code=502,
+            detail=_redact_known_secrets(result.error or "TTS provider failed"),
+        )
 
 
 # ──────────────────────────────────────────────────────────────
@@ -882,36 +633,16 @@ async def demo_inject(request: Request):
            "content": "...", "persona_id": "..."}
     """
     body = await request.json()
-    client_id = body.get("client_id")
-    action = body.get("action")
-
-    if not client_id or not action:
-        raise HTTPException(status_code=400, detail="client_id and action required")
-
-    # Find the LATEST WS connection for this client_id
-    target_ws = _ws_by_client.get(client_id)
-    if not target_ws:
-        raise HTTPException(status_code=404, detail=f"No WS for client_id {client_id[:12]}")
-
-    # Build demo_inject message for the UI
-    inject_msg = {
-        "type": "demo_inject",
-        "action": action,
-        "content": body.get("content", ""),
-        "persona_id": body.get("persona_id", ""),
-        "scenario_id": body.get("scenario_id", ""),
-        "hours": body.get("hours", 0),
-        "tab": body.get("tab", 0),
-        "category": body.get("category", ""),
-    }
-
     try:
-        await target_ws.send_json(inject_msg)
-        print(f"  [demo-inject] ✅ {action} → 1 UI client")
-        return {"ok": True, "sent_to": 1}
-    except Exception as e:
-        _ws_by_client.pop(client_id, None)
-        print(f"  [demo-inject] ❌ {action} failed: {e}")
+        result = await demo_inject_service.send(body)
+        print(f"  [demo-inject] ✅ {body.get('action')} → 1 UI client")
+        return result
+    except MissingDemoInjectFields:
+        raise HTTPException(status_code=400, detail="client_id and action required")
+    except DemoClientNotConnected as e:
+        raise HTTPException(status_code=404, detail=f"No WS for client_id {e.client_id[:12]}")
+    except DemoInjectSendFailed as e:
+        print(f"  [demo-inject] ❌ {body.get('action')} failed: {e}")
         raise HTTPException(status_code=502, detail="WS send failed")
 
 
@@ -940,11 +671,18 @@ async def image_api(
     except ValueError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    result = await provider.generate(
-        prompt=prompt,
-        aspect_ratio=aspect_ratio,
-        image_size=image_size,
-    )
+    try:
+        result = await provider.generate(
+            prompt=prompt,
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+        )
+    except Exception as e:
+        print(f"  [image_api] provider error: {type(e).__name__}: {str(e)[:200]}")
+        raise HTTPException(
+            status_code=502,
+            detail=_external_error_detail("Image provider failed", e),
+        )
 
     if result.success and result.image_path:
         # Determine media type
@@ -956,23 +694,23 @@ async def image_api(
             filename=f"generated{ext}",
         )
     else:
-        raise HTTPException(status_code=500, detail=result.error or "Image generation failed")
+        raise HTTPException(
+            status_code=502,
+            detail=_redact_known_secrets(result.error or "Image generation failed"),
+        )
 
 
 @app.get("/api/selfie/{filename:path}")
 async def serve_selfie(filename: str):
     """Serve a generated selfie image from the cache."""
     selfie_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache", "selfie")
-    file_path = os.path.join(selfie_dir, filename)
-    if not os.path.exists(file_path):
+    try:
+        file_path = safe_child_path(selfie_dir, filename)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid image path")
+    if not file_path.is_file():
         raise HTTPException(status_code=404, detail="Image not found")
-    media_type = "image/png"
-    ext = os.path.splitext(file_path)[1].lower()
-    if ext in (".jpg", ".jpeg"):
-        media_type = "image/jpeg"
-    elif ext == ".webp":
-        media_type = "image/webp"
-    return FileResponse(file_path, media_type=media_type)
+    return FileResponse(file_path, media_type=_media_type_for_file(file_path))
 
 
 # ──────────────────────────────────────────────────────────────
@@ -986,7 +724,7 @@ async def get_avatar(persona_id: str):
     _personas_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "persona", "personas")
     path = os.path.join(_personas_dir, persona_id, "avatar.png")
     if os.path.isfile(path):
-        return FileResponse(path, media_type="image/png", filename=f"{persona_id}_avatar.png")
+        return FileResponse(path, media_type=_media_type_for_file(path), filename=f"{persona_id}_avatar.png")
     raise HTTPException(status_code=404, detail="Avatar not found")
 
 
@@ -1005,6 +743,12 @@ async def websocket_chat(ws: WebSocket):
       Server → Client: {"type": "chat_chunk", "content": "嘿～"}  (streamed)
       Server → Client: {"type": "chat_end", "dominant_drive": "🔗 联结", ...}
     """
+    if not _request_has_api_token(
+        ws.headers.get("Authorization"),
+        ws.query_params.get("token"),
+    ):
+        await ws.close(code=1008)
+        return
     await ws.accept()
     session_id = None
     agent = None
@@ -1013,12 +757,17 @@ async def websocket_chat(ws: WebSocket):
     _msg_buffer: list[dict] = []        # buffered chat messages
     _typing_active: bool = False        # client is typing
     _debounce_task: asyncio.Task | None = None  # grace period timer
+    _connection_closed: bool = False
     DEBOUNCE_GRACE_SEC = 2.0            # wait after cursor leaves input
     DEBOUNCE_FALLBACK_SEC = 3.0         # fallback if no typing signal
 
     async def _flush_buffer():
         """Merge buffered messages and process as single turn."""
         nonlocal _msg_buffer, _debounce_task, agent, session_id
+        if _connection_closed:
+            _msg_buffer = []
+            _debounce_task = None
+            return
         if not _msg_buffer:
             return
 
@@ -1027,241 +776,15 @@ async def websocket_chat(ws: WebSocket):
         _msg_buffer = []
         _debounce_task = None
 
-        # Use metadata from the first message
-        first = msgs[0]
-        merged_text = "\n".join(m.get("content", "").strip() for m in msgs)
-        persona_id = first.get("persona_id", "")
-        user_name = first.get("user_name")
-        ws_client_id = first.get("client_id")
-        debug_mode = first.get("debug", False)  # Developer mode: include engine internals
-
-        if not persona_id or not merged_text.strip():
-            return
-
-        # If persona changed on same WS (demo switch), reset session
-        if agent and hasattr(agent, 'persona') and agent.persona.persona_id != persona_id:
-            print(f"  [session] persona changed {agent.persona.persona_id} → {persona_id}, resetting session")
-            session_id = None
-            agent = None
-
-        try:
-            session_id, agent = get_or_create_session(
-                session_id or first.get("session_id"),
-                persona_id,
-                user_name,
-                ws_client_id,
+        if ws_chat_turn_service:
+            result = await ws_chat_turn_service.handle_messages(
+                websocket=ws,
+                messages=msgs,
+                agent=agent,
+                session_id=session_id,
             )
-        except ValueError as e:
-            await ws.send_json({"type": "error", "content": str(e)})
-            return
-
-        if len(msgs) > 1:
-            print(f"  [debounce] 📦 merged {len(msgs)} messages into one turn")
-
-        # Display-only greeting (only from first message)
-        greeting = first.get("greeting")
-        if greeting and agent and len(agent.history) == 0:
-
-            print(f"  [greeting] display-only (not in model state): {greeting[:40]}")
-            if chat_log_store and ws_client_id:
-                try:
-                    chat_log_store._conn.execute(
-                        "INSERT INTO chat_messages (client_id, persona_id, role, content, modality, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                        (ws_client_id, persona_id, "assistant", greeting, "文字", time.time()),
-                    )
-                    chat_log_store._conn.commit()
-                except Exception as e:
-                    print(f"  [greeting] chat_log save error: {e}")
-
-        # Register WS connection for proactive push (supports multiple clients per session)
-        if session_id not in _ws_connections:
-            _ws_connections[session_id] = set()
-        _ws_connections[session_id].add(ws)
-        # Track by client_id for demo inject API
-        if ws_client_id:
-            _ws_by_client[ws_client_id] = ws  # Always overwrite with latest
-
-        # ── Process the merged message (same as original chat handling) ──
-        stream_error = False
-        _clean_reply_text = ""
-        try:
-            async def _ws_send(msg: dict):
-                # Broadcast to all WS clients for this session
-                for _peer in list(_ws_connections.get(session_id, set())):
-                    try:
-                        await _peer.send_json(msg)
-                    except Exception:
-                        if session_id in _ws_connections:
-                            _ws_connections[session_id].discard(_peer)
-
-            async def _on_feel_done():
-                await _ws_send({
-                    "type": "chat_start",
-                    "session_id": session_id,
-                    "user_content": merged_text,
-                })
-
-            async def _on_complete(reply: str, modality: str):
-                nonlocal _clean_reply_text
-                _clean_reply_text = reply
-
-            await _stream_to_ws(
-                agent.chat_stream(merged_text),
-                _ws_send,
-                on_feel_done=_on_feel_done,
-                on_reply_complete=_on_complete,
-            )
-        except Exception as e:
-            stream_error = True
-            print(f"[ws] stream 错误: {e}")
-            try:
-                await ws.send_json({
-                    "type": "error",
-                    "content": f"LLM 响应异常: {type(e).__name__}: {str(e)[:200]}",
-                })
-            except Exception:
-                return  # WS broken, stop processing
-
-        if not stream_error:
-            status = agent.get_status()
-            # Developer mode: attach full engine state for visualization
-            if debug_mode:
-                status["debug"] = agent.get_debug_status()
-            image_path = status.pop("image_path", None)
-            audio_path = status.pop("audio_path", None)
-            if image_path:
-                parts = image_path.replace("\\", "/").split("/")
-                selfie_idx = parts.index("selfie") if "selfie" in parts else -1
-                image_url = "/api/selfie/" + "/".join(parts[selfie_idx + 1:]) if selfie_idx >= 0 else f"/api/selfie/{os.path.basename(image_path)}"
-                print(f"  [delivery] 📷 image_path={image_path}, image_url={image_url}")
-            else:
-                image_url = None
-
-            segments = status.pop("segments", None)
-            delays_ms = status.pop("delays_ms", None)
-            modality = status.get("modality", "文字")
-
-            # ── Silence: suppress reply, notify client ──
-            if modality == "静默":
-                await ws.send_json({
-                    "type": "silence",
-                    "session_id": session_id,
-                    **{k: v for k, v in status.items()},
-                })
-                print(f"  [silence] 🤫 角色选择静默，客户端不显示消息")
-            elif segments and isinstance(segments, list) and len(segments) > 1:
-                for i, seg in enumerate(segments):
-                    delay = delays_ms[i] if delays_ms and i < len(delays_ms) else 0
-                    if i > 0:
-                        # Always show typing indicator between segments
-                        await ws.send_json({
-                            "type": "chat_start",
-                            "session_id": session_id,
-                        })
-                        # Minimum 300ms delay for UI to render previous segment
-                        await asyncio.sleep(max(delay, 300) / 1000.0)
-                    await ws.send_json({
-                        "type": "chat_end",
-                        "reply": seg,
-                        "modality": modality,
-                        "image_url": image_url if i == 0 else None,
-                        **{k: v for k, v in status.items()},
-                    })
-                print(f"  [skill] ✂️ Delivered {len(segments)} segments")
-            else:
-                await ws.send_json({
-                    "type": "chat_end",
-                    "reply": _clean_reply_text,
-                    "modality": modality,
-                    "image_url": image_url,
-                    **{k: v for k, v in status.items()},
-                })
-
-            if audio_path and os.path.isfile(audio_path):
-                try:
-                    with open(audio_path, "rb") as f:
-                        audio_b64 = base64.b64encode(f.read()).decode()
-                    await ws.send_json({
-                        "type": "tts_audio",
-                        "audio": audio_b64,
-                        "format": "wav",
-                    })
-                    print(f"  [skill] 🔊 Audio delivered: {os.path.basename(audio_path)}")
-                except Exception as e:
-                    print(f"  [skill] ⚠ Audio delivery failed: {e}")
-
-            # Retry content (if any) already delivered via _skill_outputs → get_status().
-            # Clear _pending_retry to prevent duplicate delivery through the follow-up path.
-            if hasattr(agent, '_pending_retry') and agent._pending_retry:
-                print(f"  [skill] 🧹 Cleared _pending_retry (already delivered via status)")
-                agent._pending_retry = None
-
-            retry = getattr(agent, '_pending_retry', None)
-            if retry:
-                await asyncio.sleep(5)
-                print(f"  [skill] 🔄 Delivering retry {retry['modality']}...")
-                retry_image_url = None
-                if retry.get("image_path"):
-                    parts = retry["image_path"].replace("\\", "/").split("/")
-                    selfie_idx = parts.index("selfie") if "selfie" in parts else -1
-                    retry_image_url = "/api/selfie/" + "/".join(parts[selfie_idx + 1:]) if selfie_idx >= 0 else None
-                await ws.send_json({
-                    "type": "chat_end",
-                    "reply": retry["reply"],
-                    "modality": retry["modality"],
-                    "image_url": retry_image_url,
-                })
-                if retry.get("audio_path") and os.path.isfile(retry["audio_path"]):
-                    try:
-                        with open(retry["audio_path"], "rb") as f:
-                            audio_b64 = base64.b64encode(f.read()).decode()
-                        await ws.send_json({
-                            "type": "tts_audio",
-                            "audio": audio_b64,
-                            "format": "wav",
-                        })
-                        print(f"  [skill] 🔊 Retry audio delivered: {os.path.basename(retry['audio_path'])}")
-                    except Exception as e:
-                        print(f"  [skill] ⚠ Retry audio delivery failed: {e}")
-                agent._pending_retry = None
-
-            # Log conversation for debugging
-            print(f"  [chat] 👤 {merged_text[:60]}")
-            print(f"  [chat] 🤖 {_clean_reply_text[:120]}")
-
-            # Persist to display-layer chat log
-            if chat_log_store and ws_client_id:
-                _persona_id = first.get("persona_id", "")
-                try:
-                    if segments and isinstance(segments, list) and len(segments) > 1:
-                        # Store each segment as a separate row (from split_messages tool)
-                        chat_log_store.save_turn(
-                            client_id=ws_client_id,
-                            persona_id=_persona_id,
-                            user_msg=merged_text,
-                            agent_reply=segments[0],
-                            modality=modality,
-                            image_url=image_url,
-                        )
-                        for seg in segments[1:]:
-                            chat_log_store.save_message(
-                                client_id=ws_client_id,
-                                persona_id=_persona_id,
-                                role="assistant",
-                                content=seg,
-                                modality=modality,
-                            )
-                    else:
-                        chat_log_store.save_turn(
-                            client_id=ws_client_id,
-                            persona_id=_persona_id,
-                            user_msg=merged_text,
-                            agent_reply=_clean_reply_text,
-                            modality=modality,
-                            image_url=image_url,
-                        )
-                except Exception as e:
-                    print(f"  [chat_log] save error: {e}")
+            session_id = result.session_id
+            agent = result.agent
 
     async def _schedule_flush(delay: float):
         """Schedule a flush after delay, cancelling any existing timer."""
@@ -1269,8 +792,17 @@ async def websocket_chat(ws: WebSocket):
         if _debounce_task and not _debounce_task.done():
             _debounce_task.cancel()
         async def _wait_and_flush():
-            await asyncio.sleep(delay)
-            await _flush_buffer()
+            try:
+                await asyncio.sleep(delay)
+                if _connection_closed:
+                    return
+                await _flush_buffer()
+            except asyncio.CancelledError:
+                raise
+            except RuntimeError as e:
+                print(f"[ws] flush skipped after connection close: {e}")
+            except Exception as e:
+                print(f"[ws] flush task error: {type(e).__name__}: {e}")
         _debounce_task = asyncio.create_task(_wait_and_flush())
 
     try:
@@ -1287,7 +819,7 @@ async def websocket_chat(ws: WebSocket):
             # Early client_id registration for demo inject API
             _cid = msg.get("client_id")
             if _cid:
-                _ws_by_client[_cid] = ws  # Always overwrite with latest
+                ws_registry.register_client(_cid, ws)
 
             # ── Typing indicator (informational only) ──
             if msg_type == "typing":
@@ -1316,41 +848,8 @@ async def websocket_chat(ws: WebSocket):
 
             # ── TTS request ──
             elif msg_type == "tts_request":
-                text = msg.get("content", "")
-                if text and agent:
-                    try:
-                        # Resolve voice from api.yaml voice_map (provider-agnostic)
-                        from providers.config import _load as _load_config
-                        _tts_cfg = _load_config().get("tts", {})
-                        _voice_map = _tts_cfg.get("voice_map", {})
-                        _default_voice = _tts_cfg.get("providers", {}).get(
-                            _tts_cfg.get("provider", ""), {}
-                        ).get("default_voice", "Cherry")
-                        voice_preset = _voice_map.get(
-                            agent.persona.persona_id, _default_voice
-                        )
-                        result = await tts_engine.synthesize(
-                            text=text,
-                            voice_preset=voice_preset,
-                        )
-                        if result.success and result.audio_path:
-                            with open(result.audio_path, "rb") as f:
-                                audio_b64 = base64.b64encode(f.read()).decode()
-                            await ws.send_json({
-                                "type": "tts_audio",
-                                "audio": audio_b64,
-                                "format": "mp3",
-                            })
-                        else:
-                            await ws.send_json({
-                                "type": "error",
-                                "content": f"TTS 失败: {result.error}",
-                            })
-                    except Exception as e:
-                        await ws.send_json({
-                            "type": "error",
-                            "content": f"TTS 异常: {str(e)[:200]}",
-                        })
+                if ws_tts_service:
+                    await ws_tts_service.handle_request(ws, agent, msg.get("content", ""))
 
             # ── Status request ──
             elif msg_type == "status":
@@ -1362,197 +861,29 @@ async def websocket_chat(ws: WebSocket):
 
             # ── Switch persona ──
             elif msg_type == "switch_persona":
-                new_persona_id = msg.get("persona_id", "")
-                if new_persona_id:
-                    # Clean up old session to prevent leak
-                    old_session_id = session_id
-                    if old_session_id:
-                        if old_session_id in _ws_connections:
-                            _ws_connections[old_session_id].discard(ws)
-                        remove_session(old_session_id)
-                    try:
-                        session_id, agent = get_or_create_session(
-                            None,
-                            new_persona_id,
-                            msg.get("user_name"),
-                            msg.get("client_id"),
-                        )
-                        if session_id not in _ws_connections:
-                            _ws_connections[session_id] = set()
-                        _ws_connections[session_id].add(ws)
-                        await ws.send_json({
-                            "type": "persona_switched",
-                            "session_id": session_id,
-                            "persona": agent.persona.name,
-                        })
-                    except ValueError as e:
-                        await ws.send_json({"type": "error", "content": str(e)})
-
-            # ── Demo: Time Jump ──
-            elif msg_type == "demo_time_jump":
-                if agent:
-                    hours = float(msg.get("hours", 1))
-                    demo = DemoController(agent)
-                    result = demo.time_jump(hours)
-                    print(f"  [demo] ⏩ time_jump +{hours}h → temp={result['temperature']:.3f}, frust={result['total_frustration']:.2f}", flush=True)
-                    await ws.send_json({"type": "demo_state", **result})
-
-                    # Auto-trigger proactive sweep — AI naturally checks its drives
-                    try:
-                        pro_result = await asyncio.wait_for(
-                            demo.force_proactive(simulated_hours=hours), timeout=30
-                        )
-                        if pro_result.get("proactive_fired"):
-                            raw_reply = pro_result.get("proactive_reply", "")
-                            # Route through full engine (Feel→Express→SKILL)
-                            stimulus = f"[系统指令] 你现在想主动对用户说话。以下是你想表达的内容，请用你认为的方式表达出来：\n{raw_reply}"
-                            engine_result = await agent.chat(stimulus, is_proactive=True)
-                            reply = engine_result.get('reply', raw_reply)
-                            modality = engine_result.get('modality', '文字')
-                            segments = engine_result.get('segments')
-                            delays_ms = engine_result.get('delays_ms')
-                            if segments and len(segments) > 1:
-                                for i, seg in enumerate(segments):
-                                    if i > 0:
-                                        await ws.send_json({"type": "chat_start", "session_id": session_id})
-                                        delay = delays_ms[i] if delays_ms and i < len(delays_ms) else 300
-                                        await asyncio.sleep(max(delay, 300) / 1000.0)
-                                    await ws.send_json({"type": "chat_end", "reply": seg, "modality": modality, "proactive": True})
-                            else:
-                                await ws.send_json({"type": "proactive", "content": reply, "modality": modality})
-                            print(f"  [demo] 💭 自驱消息(engine): {reply[:40]}", flush=True)
-                        else:
-                            print(f"  [demo] 💭 no impulse after +{hours}h", flush=True)
-                        await ws.send_json({"type": "demo_state", **pro_result})
-                    except asyncio.TimeoutError:
-                        print(f"  [demo] ⏰ proactive tick timeout (30s)", flush=True)
-                    except Exception as e:
-                        import traceback
-                        print(f"  [demo] ❌ proactive after jump failed: {e}", flush=True)
-                        traceback.print_exc()
-
-            # ── Demo: State Injection ──
-            elif msg_type == "demo_inject":
-                if agent:
-                    overrides = msg.get("overrides", {})
-                    demo = DemoController(agent)
-                    result = demo.inject_state(overrides)
-                    print(f"  [demo] 🎚️ inject → temp={result['temperature']:.3f}, frust={result['total_frustration']:.2f}", flush=True)
-                    await ws.send_json({"type": "demo_state", **result})
-
-            # ── Demo: Apply Scenario ──
-            elif msg_type == "demo_scenario":
-                if agent:
-                    scenario_id = msg.get("scenario_id", "")
-                    demo = DemoController(agent)
-                    _presets_file = os.path.join(
-                        os.path.dirname(os.path.abspath(__file__)),
-                        "demo", "presets", "showcase.yaml"
+                if persona_switch_service:
+                    switch_result = await persona_switch_service.switch(
+                        websocket=ws,
+                        current_session_id=session_id,
+                        persona_id=msg.get("persona_id", ""),
+                        user_name=msg.get("user_name"),
+                        client_id=msg.get("client_id"),
                     )
-                    demo.load_presets_file(_presets_file)
-                    result = demo.apply_scenario(scenario_id)
-                    print(f"  [demo] 🎚️ scenario '{scenario_id}' → temp={result.get('temperature', 0):.3f}", flush=True)
-                    await ws.send_json({"type": "demo_state", **result})
+                    if switch_result:
+                        session_id, agent = switch_result
 
-                    # Auto-trigger proactive sweep after scenario
-                    try:
-                        pro_result = await asyncio.wait_for(
-                            demo.force_proactive(), timeout=30
-                        )
-                        if pro_result.get("proactive_fired"):
-                            raw_reply = pro_result.get("proactive_reply", "")
-                            # Route through full engine (Feel→Express→SKILL)
-                            stimulus = f"[系统指令] 你现在想主动对用户说话。以下是你想表达的内容，请用你认为的方式表达出来：\n{raw_reply}"
-                            engine_result = await agent.chat(stimulus, is_proactive=True)
-                            reply = engine_result.get('reply', raw_reply)
-                            modality = engine_result.get('modality', '文字')
-                            segments = engine_result.get('segments')
-                            delays_ms = engine_result.get('delays_ms')
-                            if segments and len(segments) > 1:
-                                for i, seg in enumerate(segments):
-                                    if i > 0:
-                                        await ws.send_json({"type": "chat_start", "session_id": session_id})
-                                        delay = delays_ms[i] if delays_ms and i < len(delays_ms) else 300
-                                        await asyncio.sleep(max(delay, 300) / 1000.0)
-                                    await ws.send_json({"type": "chat_end", "reply": seg, "modality": modality, "proactive": True})
-                            else:
-                                await ws.send_json({"type": "proactive", "content": reply, "modality": modality})
-                            print(f"  [demo] 💭 自驱消息(engine): {reply[:40]}", flush=True)
-                        else:
-                            print(f"  [demo] 💭 no impulse after scenario '{scenario_id}'", flush=True)
-                        await ws.send_json({"type": "demo_state", **pro_result})
-                    except asyncio.TimeoutError:
-                        print(f"  [demo] ⏰ proactive tick timeout (30s)", flush=True)
-                    except Exception as e:
-                        import traceback
-                        print(f"  [demo] ❌ proactive after scenario failed: {e}", flush=True)
-                        traceback.print_exc()
-
-            # ── Demo: Get Presets ──
-            elif msg_type == "demo_presets":
-                _presets_file = os.path.join(
-                    os.path.dirname(os.path.abspath(__file__)),
-                    "demo", "presets", "showcase.yaml"
-                )
-                try:
-                    import yaml as _yaml
-                    from pathlib import Path as _P
-                    _data = _yaml.safe_load(_P(_presets_file).read_text(encoding='utf-8'))
-                    await ws.send_json({
-                        "type": "demo_presets",
-                        "presets": _data.get("presets", []),
-                        "scenarios": _data.get("scenarios", {}),
-                    })
-                except Exception as e:
-                    await ws.send_json({"type": "error", "content": f"Failed to load presets: {e}"})
-
-            # ── Demo: Force Proactive Tick ──
-            elif msg_type == "demo_force_proactive":
-                if agent:
-                    demo = DemoController(agent)
-                    result = await demo.force_proactive()
-                    fired = result.get("proactive_fired", False)
-                    if fired:
-                        reply = result.get("proactive_reply", "")
-                        modality = result.get("proactive_modality", "文字")
-                        # Push as proactive message to client (same as real proactive)
-                        await ws.send_json({
-                            "type": "proactive",
-                            "content": reply,
-                            "modality": modality,
-                        })
-                        print(f"  [demo] 💭 proactive fired: {reply[:40]}")
-                    else:
-                        print(f"  [demo] 💭 proactive: no impulse / silence")
-                    await ws.send_json({"type": "demo_state", **result})
-
-            # ── Demo: Inject Memory ──
-            elif msg_type == "demo_inject_memory":
-                _pid = msg.get("persona_id", "")
-                _cid = msg.get("client_id", "")
-                # If agent exists but for wrong persona, reset it
-                if agent and hasattr(agent, 'persona') and _pid and agent.persona.persona_id != _pid:
-                    print(f"  [demo] memory inject: persona mismatch {agent.persona.persona_id} → {_pid}, resetting")
-                    session_id = None
-                    agent = None
-                # Auto-create session if needed
-                if not agent and _pid:
-                    try:
-                        session_id, agent = get_or_create_session(None, _pid, None, _cid)
-                        print(f"  [demo] auto-created session for memory inject: {_pid}")
-                    except Exception as e:
-                        print(f"  [demo] failed to auto-create session: {e}")
-                if agent:
-                    content = msg.get("content", "")
-                    category = msg.get("category", "preference")
-                    if content:
-                        demo = DemoController(agent)
-                        result = await demo.inject_memory(content, category)
-                        await ws.send_json({"type": "demo_memory", **result})
-                    else:
-                        await ws.send_json({"type": "error", "content": "memory content is empty"})
-                else:
-                    print("  [demo] ⚠️ no agent for memory inject — send a chat first")
+            # ── Demo commands ──
+            elif msg_type.startswith("demo_"):
+                if ws_demo_command_service:
+                    demo_result = await ws_demo_command_service.handle(
+                        websocket=ws,
+                        message=msg,
+                        agent=agent,
+                        session_id=session_id,
+                    )
+                    if demo_result.handled:
+                        session_id = demo_result.session_id
+                        agent = demo_result.agent
 
     except WebSocketDisconnect:
         pass
@@ -1563,11 +894,16 @@ async def websocket_chat(ws: WebSocket):
         except Exception:
             pass
     finally:
+        _connection_closed = True
+        if _debounce_task and not _debounce_task.done():
+            _debounce_task.cancel()
+            try:
+                await _debounce_task
+            except asyncio.CancelledError:
+                pass
+        _msg_buffer.clear()
         # Deregister WS connection
-        if session_id and session_id in _ws_connections:
-            _ws_connections[session_id].discard(ws)
-            if not _ws_connections[session_id]:
-                del _ws_connections[session_id]
+        ws_registry.unregister_websocket(ws)
         if session_id:
             remove_session(session_id)
         print(f"[ws] 连接关闭: session={session_id}")

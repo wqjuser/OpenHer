@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import Any, Optional, cast
 
 from .base import BaseTTSProvider, TTSResult
 
@@ -35,7 +35,7 @@ class OpenAITTSProvider(BaseTTSProvider):
         client = OpenAI(api_key=self._api_key)
         voice = voice_name or "alloy"
 
-        params = {
+        params: dict[str, Any] = {
             "model": "gpt-4o-mini-tts",
             "voice": voice,
             "input": text,
@@ -43,9 +43,14 @@ class OpenAITTSProvider(BaseTTSProvider):
         if emotion_instruction:
             params["instructions"] = emotion_instruction
 
-        response = client.audio.speech.create(**params)
+        response = client.audio.speech.create(**cast(Any, params))
 
         audio_path = self._cache_path(f"openai:{voice}:{text}:{emotion_instruction}", ext="mp3")
         response.stream_to_file(audio_path)
 
-        return TTSResult(success=True, audio_path=audio_path)
+        return TTSResult(
+            success=True,
+            audio_path=audio_path,
+            mime_type="audio/mpeg",
+            audio_format="mp3",
+        )

@@ -120,7 +120,7 @@ async def _generate_photo(
     prompt: str,
     persona_id: str = "",
     aspect_ratio: str = "",
-    reference_images: list = None,
+    reference_images: Optional[list] = None,
 ) -> dict:
     """Generate a photo using image generation API.
 

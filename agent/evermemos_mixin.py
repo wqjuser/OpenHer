@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false
 """
 EverMemosMixin — EverMemOS integration for ChatAgent.
 
@@ -111,7 +112,7 @@ class EverMemosMixin:
             return
         async def _do_store():
             try:
-                await self.evermemos.store_turn(
+                stored = await self.evermemos.store_turn(
                     user_id=self.evermemos_uid,
                     persona_id=self.persona.persona_id,
                     persona_name=self.persona.name,
@@ -120,7 +121,10 @@ class EverMemosMixin:
                     user_message=user_message,
                     agent_reply=reply,
                 )
-                print(f"  [evermemos] ✅ stored turn (uid={self.evermemos_uid}, pid={self.persona.persona_id})")
+                if stored:
+                    print(f"  [evermemos] ✅ stored turn (uid={self.evermemos_uid}, pid={self.persona.persona_id})")
+                else:
+                    print(f"  [evermemos] ⚠️ store skipped/failed (uid={self.evermemos_uid}, pid={self.persona.persona_id})")
             except Exception as e:
                 print(f"  [evermemos] ❌ store failed: {type(e).__name__}: {e}")
         try:

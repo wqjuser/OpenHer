@@ -17,7 +17,7 @@ from typing import Optional
 # ─────────────────────────────────────────────────────────────
 # Re-export public types (facade 兼容契约)
 # ─────────────────────────────────────────────────────────────
-from providers.speech.tts.base import TTSProvider, TTSResult  # noqa: F401
+from providers.speech.tts.base import BaseTTSProvider, TTSProvider, TTSResult  # noqa: F401
 
 # Re-export constants (used by external code)
 from providers.speech.tts.minimax import EMOTION_TO_MINIMAX  # noqa: F401
@@ -69,11 +69,11 @@ class TTSEngine:
         self._minimax_model = minimax_model
 
         # Lazy-loaded provider instances (one per provider name)
-        self._providers: dict[str, object] = {}
+        self._providers: dict[str, BaseTTSProvider] = {}
 
         print(f"✓ TTS 引擎: {self.provider.value}, 缓存: {self.cache_dir}")
 
-    def _get_provider(self, provider_name: str):
+    def _get_provider(self, provider_name: str) -> BaseTTSProvider:
         """Get or create provider instance for given name."""
         if provider_name not in self._providers:
             from providers.registry import get_tts

@@ -76,7 +76,7 @@ _DEFAULT_REL_DELTA = {'relationship_delta': 0.0, 'trust_delta': 0.0, 'emotional_
 async def critic_sense(
     stimulus: str,
     llm: LLMClient,
-    frustration: dict = None,
+    frustration: Optional[dict] = None,
     user_profile: str = "",
     episode_summary: str = "",
     persona_hint: str = "",

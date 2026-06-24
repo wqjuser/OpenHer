@@ -9,6 +9,7 @@ struct MessageRow: View {
     let serverURL: String
     var onRetry: (() -> Void)?
     var onImageTap: ((URL) -> Void)?
+    @EnvironmentObject var appState: AppState
 
     @State private var isHovering = false
 
@@ -70,7 +71,7 @@ struct MessageRow: View {
         VStack(alignment: .leading, spacing: 8) {
             // Layer 1: Image — render if imageURL is present (any modality)
             if let urlStr = message.imageURL,
-               let url = URL(string: serverURL + urlStr) {
+               let url = appState.authenticatedMediaURL(path: urlStr) {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):

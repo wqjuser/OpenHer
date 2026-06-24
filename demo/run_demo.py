@@ -109,6 +109,8 @@ def monitor_log():
         proc = subprocess.Popen(
             ["tail", "-f", SERVER_LOG], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         )
+        if proc.stdout is None:
+            return
         for line in proc.stdout:
             if abort_flag:
                 proc.kill()

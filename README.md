@@ -367,9 +367,9 @@ chmod +x run.sh
 
 在 [evermind.ai](https://evermind.ai) 注册，然后在 `.env` 中设置：
 ```bash
-EVERMEMOS_BASE_URL=https://api.evermind.ai/v1
 EVERMEMOS_API_KEY=your_api_key
 ```
+OpenHer 会自动使用 EverMemOS 云端默认地址。只有自部署或私有网关需要设置 `EVERMEMOS_BASE_URL`。
 
 **方案 B — 自部署：**
 

@@ -29,18 +29,20 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 try:
     import yaml
-    _YAML = True
 except ImportError:
-    _YAML = False
+    yaml = None
 
 try:
     import httpx
 except ImportError:
     httpx = None
+
+if TYPE_CHECKING:
+    import httpx as httpx_types
 
 
 # ─────────────────────────────────────────────────────────────
@@ -71,7 +73,7 @@ def _load_memory_config() -> dict:
         "log_latency": True,
     }
     config_path = Path(__file__).parent / "memory_config.yaml"
-    if _YAML and config_path.exists():
+    if yaml is not None and config_path.exists():
         try:
             data = yaml.safe_load(config_path.read_text()) or {}
             cfg = data.get("evermemos", data)
@@ -211,7 +213,7 @@ class EverMemOSClient:
         # Optional API key (for cloud fallback or authenticated setups)
         self._api_key = api_key or os.environ.get("EVERMEMOS_API_KEY")
 
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: Optional["httpx_types.AsyncClient"] = None
         self._initialized = False
 
         # Circuit breaker
@@ -256,11 +258,32 @@ class EverMemOSClient:
         if not self._initialized or not self._client:
             return False
         try:
+            health_body = {
+                "filters": {"user_id": "__healthcheck__"},
+                "query": "__healthcheck__",
+                "method": "keyword",
+                "top_k": 1,
+            }
             resp = await self._client.request(
-                "GET", "/memories",
-                json={"user_id": "__healthcheck__", "memory_type": "profile", "page_size": 1},
+                "POST",
+                "/memories/search",
+                json=health_body,
                 timeout=8.0,
             )
+            if resp.status_code in (404, 405):
+                resp = await self._client.request(
+                    "POST",
+                    "/memory/search",
+                    json={
+                        "query": "__healthcheck__",
+                        "method": "keyword",
+                        "user_id": "__healthcheck__",
+                        "app_id": "openher",
+                        "project_id": "openher",
+                        "top_k": 1,
+                    },
+                    timeout=8.0,
+                )
             if resp.status_code == 401:
                 print(f"✗ EverMemOS API key 无效 (HTTP 401) — 请检查 .env 中的 EVERMEMOS_API_KEY")
                 self._initialized = False
@@ -278,6 +301,104 @@ class EverMemOSClient:
     @property
     def available(self) -> bool:
         return self._initialized and self._client is not None and not self._cb.is_open
+
+    async def _post_memories(
+        self,
+        user_id: str,
+        group_id: str,
+        messages: list[dict],
+        label: str,
+        flush_after: bool = False,
+    ) -> bool:
+        """Post memories using the cloud batch shape, with legacy flat fallback."""
+        if not self._client:
+            return False
+
+        body = {
+            "user_id": user_id,
+            "app_id": "openher",
+            "project_id": "openher",
+            "session_id": group_id or user_id,
+            "messages": messages,
+        }
+
+        last_resp = None
+        success_path = ""
+        for path in ("/memories", "/memory/add"):
+            resp = await self._client.post(path, json=body)
+            last_resp = resp
+            print(f"  [evermemos] POST {label} {path}: HTTP {resp.status_code} gid={group_id}")
+            if resp.status_code in (200, 201, 202):
+                success_path = path
+                break
+            if resp.status_code != 404:
+                break
+
+        if success_path:
+            if flush_after and success_path == "/memory/add":
+                flush_resp = await self._client.post(
+                    "/memory/flush",
+                    json={
+                        "session_id": group_id or user_id,
+                        "app_id": "openher",
+                        "project_id": "openher",
+                    },
+                )
+                print(f"  [evermemos] POST {label} /memory/flush: HTTP {flush_resp.status_code} gid={group_id}")
+            self._cb.record_success()
+            return True
+
+        failure_text = last_resp.text[:200] if last_resp is not None else "no response"
+        print(f"  [evermemos] store {label} batch failed: {failure_text}")
+
+        # Older self-hosted builds accepted one flat message per POST.
+        for index, message in enumerate(messages):
+            legacy_payload = {
+                "content": message["content"],
+                "create_time": time.strftime("%Y-%m-%dT%H:%M:%S+08:00", time.localtime(message["timestamp"] / 1000)),
+                "message_id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "sender": message["sender_id"],
+                "sender_name": message.get("sender_name"),
+                "role": message["role"],
+            }
+            if group_id:
+                legacy_payload["group_id"] = group_id
+            if flush_after and index == len(messages) - 1:
+                legacy_payload["flush"] = True
+            legacy_resp = await self._client.post("/memories", json=legacy_payload)
+            print(
+                f"  [evermemos] POST {label} legacy {message.get('role', 'message')}: "
+                f"HTTP {legacy_resp.status_code} gid={group_id} sender={message.get('sender_id')}"
+            )
+            if legacy_resp.status_code not in (200, 201, 202):
+                print(f"  [evermemos] store {label} legacy failed: {legacy_resp.text[:200]}")
+                self._cb.record_failure()
+                return False
+
+        self._cb.record_success()
+        return True
+
+    async def _request_json_candidates(
+        self,
+        method: str,
+        paths: tuple[str, ...],
+        body: dict,
+        timeout: float,
+    ):
+        """Try equivalent EverMemOS/EverOS routes and return the first response."""
+        if not self._client:
+            return None
+        client = self._client
+        last_resp = None
+        for path in paths:
+            resp = await client.request(method, path, json=body, timeout=timeout)
+            last_resp = resp
+            if resp.status_code == 200:
+                return resp
+            if resp.status_code not in (404, 405):
+                return resp
+        return last_resp
 
     # ─────────────────────────────────────────────────────────────
     # Session Lifecycle
@@ -308,6 +429,9 @@ class EverMemOSClient:
 
         if not self.available:
             return empty
+        if not self._client:
+            return empty
+        client = self._client
 
         t0 = time.monotonic()
         try:
@@ -315,12 +439,55 @@ class EverMemOSClient:
 
             async def _get_type(mtype: str):
                 try:
-                    body = {"memory_type": mtype}
+                    v1_type = {
+                        "profile": "profile",
+                        "episodic_memory": "episode",
+                    }.get(mtype)
+                    if v1_type:
+                        v1_body = {
+                            "user_id": user_id,
+                            "app_id": "openher",
+                            "project_id": "openher",
+                            "memory_type": v1_type,
+                            "page_size": 20,
+                            "sort_order": "desc",
+                        }
+                        resp = await self._request_json_candidates(
+                            "POST",
+                            ("/memory/get", "/memories/get"),
+                            v1_body,
+                            timeout,
+                        )
+                        if resp and resp.status_code == 200:
+                            data = resp.json().get("data", {})
+                            key = "profiles" if v1_type == "profile" else "episodes"
+                            return {"result": {"memories": data.get(key, [])}}
+                        if resp and resp.status_code in (404, 405):
+                            compat_body = {
+                                "user_id": user_id,
+                                "app_id": "openher",
+                                "project_id": "openher",
+                                "memory_type": mtype,
+                                "page_size": 20,
+                                "sort_order": "desc",
+                                "filters": {"user_id": user_id},
+                            }
+                            resp = await client.request(
+                                "POST",
+                                "/memories/get",
+                                json=compat_body,
+                                timeout=timeout,
+                            )
+                            if resp.status_code == 200:
+                                data = resp.json().get("data", {})
+                                key = "profiles" if mtype == "profile" else "episodes"
+                                return {"result": {"memories": data.get(key, [])}}
+                        return None
+
+                    body: dict[str, object] = {"memory_type": mtype, "user_id": user_id}
                     if group_id:
                         body["group_ids"] = [group_id]
-                    else:
-                        body["user_id"] = user_id
-                    resp = await self._client.request(
+                    resp = await client.request(
                         "GET", "/memories",
                         json=body,
                         timeout=timeout,
@@ -393,6 +560,9 @@ class EverMemOSClient:
                     )
                     if content and content.strip():
                         foresight_lines.append(content.strip())
+
+            if interaction_count == 0:
+                interaction_count = len(all_memories)
 
             # Build readable profile text
             max_facts = _CFG["facts_max_items"]
@@ -472,7 +642,7 @@ class EverMemOSClient:
         group_id: str,
         user_message: str,
         agent_reply: str,
-    ) -> None:
+    ) -> bool:
         """
         Store one conversation turn (user + agent messages) to EverMemOS.
         Called as asyncio.create_task — fire and forget, never blocks.
@@ -481,50 +651,42 @@ class EverMemOSClient:
         Profiles, and Foresights from stored messages.
         """
         if not self.available:
-            return
+            return False
 
-        now_iso = time.strftime("%Y-%m-%dT%H:%M:%S+08:00", time.localtime())
+        now_ms = int(time.time() * 1000)
 
         try:
-            # Store user message
-            r1 = await self._client.post("/memories", json={
-                "content": user_message,
-                "create_time": now_iso,
-                "message_id": str(uuid.uuid4()),
-                "sender": user_id,
-                "sender_name": user_name,
-                "role": "user",
-                "group_id": group_id,
-            })
-            print(f"  [evermemos] POST user msg: HTTP {r1.status_code} gid={group_id} sender={user_id}")
-            if r1.status_code not in (200, 202):
-                print(f"  [evermemos] store user msg failed: {r1.text[:200]}")
-                self._cb.record_failure()
-                return
-            # Store agent reply (flush=True → trigger immediate memory extraction)
-            r2 = await self._client.post("/memories", json={
-                "content": agent_reply,
-                "create_time": now_iso,
-                "message_id": str(uuid.uuid4()),
-                "sender": persona_id,
-                "sender_name": persona_name,
-                "role": "assistant",
-                "group_id": group_id,
-                "flush": True,
-            })
-            print(f"  [evermemos] POST agent msg: HTTP {r2.status_code} gid={group_id} sender={persona_id} flush=True")
-            if r2.status_code not in (200, 202):
-                print(f"  [evermemos] store agent msg failed: {r2.text[:200]}")
-                self._cb.record_failure()
-                return
-            self._cb.record_success()
+            return await self._post_memories(
+                user_id=user_id,
+                group_id=group_id,
+                label="turn",
+                flush_after=True,
+                messages=[
+                    {
+                        "content": user_message,
+                        "timestamp": now_ms,
+                        "sender_id": user_id,
+                        "sender_name": user_name,
+                        "role": "user",
+                    },
+                    {
+                        "content": agent_reply,
+                        "timestamp": now_ms + 1,
+                        "sender_id": persona_id,
+                        "sender_name": persona_name,
+                        "role": "assistant",
+                    },
+                ],
+            )
 
         except Exception as e:
             self._cb.record_failure()
             print(f"  [evermemos] store_turn error: {e}")
+            return False
 
     async def store_proactive_turn(
         self,
+        user_id: str,
         persona_id: str,
         persona_name: str,
         group_id: str,
@@ -533,27 +695,30 @@ class EverMemOSClient:
     ) -> None:
         """
         Store a proactive message (AI-initiated, no user_message).
-        Uses message_id=tick_id for idempotent retry (R25).
         """
         if not self.available:
             return
 
-        now_iso = time.strftime("%Y-%m-%dT%H:%M:%S+08:00", time.localtime())
-        msg_id = f"proactive_{tick_id}"
+        now_ms = int(time.time() * 1000)
 
         try:
-            await self._client.post("/memories", json={
-                "content": reply,
-                "create_time": now_iso,
-                "message_id": msg_id,
-                "sender": persona_id,
-                "sender_name": persona_name,
-                "role": "assistant",
-                "group_id": group_id,
-                "refer_list": ["proactive"],
-            })
-            self._cb.record_success()
-            print(f"  [evermemos] stored proactive turn (tick={tick_id[:8]})")
+            stored = await self._post_memories(
+                user_id=user_id,
+                group_id=group_id,
+                label="proactive",
+                flush_after=True,
+                messages=[
+                    {
+                        "content": reply,
+                        "timestamp": now_ms,
+                        "sender_id": persona_id,
+                        "sender_name": persona_name,
+                        "role": "assistant",
+                    }
+                ],
+            )
+            if stored:
+                print(f"  [evermemos] stored proactive turn (tick={tick_id[:8]})")
         except Exception as e:
             self._cb.record_failure()
             print(f"  [evermemos] store_proactive error: {e}")
@@ -572,17 +737,23 @@ class EverMemOSClient:
             return
 
         try:
-            await self._client.post("/memories", json={
-                "content": "[session_end]",
-                "create_time": time.strftime("%Y-%m-%dT%H:%M:%S+08:00", time.localtime()),
-                "message_id": str(uuid.uuid4()),
-                "sender": persona_id,
-                "sender_name": "system",
-                "role": "assistant",
-                "group_id": group_id,
-                "flush": True,
-            })
-            print(f"  [evermemos] 🔚 session flushed for {user_id}")
+            flushed = await self._post_memories(
+                user_id=user_id,
+                group_id=group_id,
+                label="session flush",
+                flush_after=True,
+                messages=[
+                    {
+                        "content": "[session_end]",
+                        "timestamp": int(time.time() * 1000),
+                        "sender_id": persona_id,
+                        "sender_name": "system",
+                        "role": "assistant",
+                    }
+                ],
+            )
+            if flushed:
+                print(f"  [evermemos] 🔚 session flushed for {user_id}")
         except Exception as e:
             print(f"  [evermemos] close_session error: {e}")
 
@@ -626,6 +797,9 @@ class EverMemOSClient:
         """
         if not self.available or not query.strip():
             return "", "", ""
+        if not self._client:
+            return "", "", ""
+        client = self._client
 
         t0 = time.monotonic()
         retrieve_method = _CFG.get("retrieve_method", "rrf")
@@ -638,32 +812,89 @@ class EverMemOSClient:
                 retrieve_method = "agentic"
 
         try:
-            # EverMemOS API: GET /memories/search with JSON body
-            body = {
-                "query": query,
-                "retrieve_method": retrieve_method,
+            # EverMemOS cloud SDK shape:
+            # memories.search(filters={...}, query=..., method=..., top_k=...)
+            method_aliases = {
+                "rrf": "keyword",
             }
-            if group_id:
-                body["group_ids"] = [group_id]
-            else:
-                body["user_id"] = user_id
-            resp = await self._client.request(
-                "GET",
+            method = method_aliases.get(retrieve_method, retrieve_method)
+            if method not in {"keyword", "vector", "hybrid", "agentic"}:
+                method = "keyword"
+            top_k = max(_CFG["facts_max_items"], _CFG["episodes_max_items"], _CFG["profile_max_items"])
+            body = {
+                "filters": {"user_id": user_id},
+                "query": query,
+                "method": method,
+                "top_k": top_k,
+            }
+            resp = await client.request(
+                "POST",
                 "/memories/search",
                 json=body,
                 timeout=_CFG["search_timeout_sec"],
             )
 
+            if resp and resp.status_code in (404, 405):
+                oss_body = {
+                    "query": query,
+                    "method": method,
+                    "user_id": user_id,
+                    "app_id": "openher",
+                    "project_id": "openher",
+                    "include_profile": True,
+                    "top_k": top_k,
+                }
+                if group_id:
+                    oss_body["filters"] = {"session_id": group_id}
+                resp = await client.request(
+                    "POST",
+                    "/memory/search",
+                    json=oss_body,
+                    timeout=_CFG["search_timeout_sec"],
+                )
+
+            if resp and resp.status_code in (404, 405):
+                legacy_body: dict[str, object] = {
+                    "query": query,
+                    "retrieve_method": retrieve_method,
+                    "user_id": user_id,
+                }
+                if group_id:
+                    legacy_body["group_ids"] = [group_id]
+                resp = await client.request(
+                    "GET",
+                    "/memories/search",
+                    json=legacy_body,
+                    timeout=_CFG["search_timeout_sec"],
+                )
+
             elapsed_ms = (time.monotonic() - t0) * 1000
 
-            if resp.status_code != 200:
-                print(f"  [evermemos] 🔍 search: HTTP {resp.status_code}{_fmt_latency(elapsed_ms)}")
+            if not resp or resp.status_code != 200:
+                status_code = resp.status_code if resp else "no-response"
+                print(f"  [evermemos] 🔍 search: HTTP {status_code}{_fmt_latency(elapsed_ms)}")
                 self._cb.record_success()
                 return "", "", ""
 
             data = resp.json()
-            result = data.get("result", {})
-            memories = result.get("memories", [])
+            memories = []
+            if "data" in data:
+                search_data = data.get("data", {})
+                memories.extend(search_data.get("episodes", []) or [])
+                memories.extend(search_data.get("profiles", []) or [])
+                for episode in search_data.get("episodes", []) or []:
+                    for fact in episode.get("atomic_facts", []) or []:
+                        fact_text = (
+                            fact.get("content")
+                            or fact.get("atomic_fact")
+                            or fact.get("text")
+                            or fact.get("fact")
+                        )
+                        if fact_text:
+                            memories.append({"atomic_fact": fact_text})
+            else:
+                result = data.get("result", {})
+                memories = result.get("memories", [])
 
             if not memories:
                 print(f"  [evermemos] 🔍 search: 0 results{_fmt_latency(elapsed_ms)} [{retrieve_method}]")
@@ -718,5 +949,5 @@ class EverMemOSClient:
         except Exception as e:
             self._cb.record_failure()
             elapsed_ms = (time.monotonic() - t0) * 1000
-            print(f"  [evermemos] 🔍 search error{_fmt_latency(elapsed_ms)}: {e}")
+            print(f"  [evermemos] 🔍 search error{_fmt_latency(elapsed_ms)}: {type(e).__name__}: {e}")
             return "", "", ""

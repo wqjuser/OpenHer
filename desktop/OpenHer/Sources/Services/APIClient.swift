@@ -3,9 +3,11 @@ import Foundation
 /// REST API client for the OpenHer backend.
 actor APIClient {
     let baseURL: String
+    let apiToken: String
 
-    init(baseURL: String) {
+    init(baseURL: String, apiToken: String = "") {
         self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
+        self.apiToken = apiToken.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Personas
@@ -17,28 +19,6 @@ actor APIClient {
     }
 
     // MARK: - Chat History
-
-    func fetchChatHistory(personaId: String, clientId: String, limit: Int = 50) async throws -> [ChatMessage] {
-        let path = "/api/chat/history/\(personaId)?client_id=\(clientId)&limit=\(limit)"
-        let data = try await get(path)
-
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        guard let messagesArray = json?["messages"] as? [[String: Any]] else {
-            return []
-        }
-
-        return messagesArray.compactMap { dict -> ChatMessage? in
-            guard let userMsg = dict["user_msg"] as? String,
-                  let agentReply = dict["agent_reply"] as? String else { return nil }
-
-            let modality = dict["modality"] as? String ?? "文字"
-            let ts = dict["timestamp"] as? String
-            let date = ts.flatMap { ISO8601DateFormatter().date(from: $0) } ?? Date()
-
-            // Each history entry produces two messages
-            return nil // Will be handled differently below
-        }
-    }
 
     func fetchChatHistoryPairs(personaId: String, clientId: String, limit: Int = 50) async throws -> [ChatMessage] {
         let path = "/api/chat/history/\(personaId)?client_id=\(clientId)&limit=\(limit)"
@@ -81,7 +61,7 @@ actor APIClient {
 
     nonisolated func avatarURL(for personaId: String) -> URL? {
         // Use real face photo from idimage as avatar
-        URL(string: "\(baseURL)/api/persona/\(personaId)/media/face")
+        authenticatedURL(path: "/api/persona/\(personaId)/media/face")
     }
 
     // MARK: - Internals
@@ -90,12 +70,27 @@ actor APIClient {
         guard let url = URL(string: "\(baseURL)\(path)") else {
             throw APIError.invalidURL
         }
-        let (data, response) = try await URLSession.shared.data(from: url)
+        var request = URLRequest(url: url)
+        if !apiToken.isEmpty {
+            request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
+        }
+        let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse,
               200..<300 ~= httpResponse.statusCode else {
             throw APIError.serverError((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
         return data
+    }
+
+    nonisolated private func authenticatedURL(path: String) -> URL? {
+        guard var components = URLComponents(string: "\(baseURL)\(path)") else { return nil }
+        let token = apiToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !token.isEmpty {
+            var items = components.queryItems ?? []
+            items.append(URLQueryItem(name: "token", value: token))
+            components.queryItems = items
+        }
+        return components.url
     }
 }
 

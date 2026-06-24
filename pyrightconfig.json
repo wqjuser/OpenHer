@@ -3,6 +3,26 @@
   "venv": ".venv",
   "pythonVersion": "3.13",
   "pythonPlatform": "Darwin",
+  "include": [
+    "agent",
+    "demo",
+    "engine",
+    "memory",
+    "persona",
+    "providers",
+    "server",
+    "skills",
+    "tests",
+    "main.py",
+    "wechat_adapter.py"
+  ],
+  "exclude": [
+    ".cache",
+    ".data",
+    ".venv",
+    "__pycache__",
+    "scripts/benchmark"
+  ],
   "extraPaths": [
     "."
   ],

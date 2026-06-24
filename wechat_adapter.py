@@ -58,7 +58,7 @@ class PersistentWS:
     """
 
     def __init__(self):
-        self._ws = None
+        self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._session: aiohttp.ClientSession | None = None
         self._listen_task: asyncio.Task | None = None
         self._connected = asyncio.Event()
@@ -66,7 +66,7 @@ class PersistentWS:
 
         # 聊天请求的回复通道：一次只处理一个聊天（串行）
         self._chat_lock = asyncio.Lock()
-        self._chat_response: asyncio.Queue | None = None
+        self._chat_response: asyncio.Queue[dict] | None = None
         self._chat_wechat_user: str = ""
 
         # 记录每个微信用户最后使用的 client_id
@@ -92,7 +92,13 @@ class PersistentWS:
             try:
                 ws_url = f"{OPENHER_WS}/ws/chat"
                 print(f"[ws] 连接 {ws_url} ...")
-                self._ws = await self._session.ws_connect(ws_url, timeout=120, heartbeat=30)
+                if self._session is None:
+                    raise RuntimeError("WebSocket session is not initialized")
+                self._ws = await self._session.ws_connect(
+                    ws_url,
+                    receive_timeout=120.0,
+                    heartbeat=30,
+                )
                 self._connected.set()
                 print(f"[ws] ✅ 已连接")
 
@@ -109,6 +115,8 @@ class PersistentWS:
 
     async def _listen(self):
         """监听所有 WebSocket 事件"""
+        if self._ws is None:
+            return
         async for msg in self._ws:
             if msg.type == aiohttp.WSMsgType.TEXT:
                 data = json.loads(msg.data)
@@ -168,11 +176,13 @@ class PersistentWS:
 
             self._chat_response = asyncio.Queue()
             self._chat_wechat_user = wechat_user
-            segments = []
+            segments: list[dict] = []
             tts_audio_path = None
 
             try:
                 # 发送消息
+                if self._ws is None:
+                    raise RuntimeError("WebSocket is not connected")
                 await self._ws.send_json({
                     "type": "chat",
                     "content": text,

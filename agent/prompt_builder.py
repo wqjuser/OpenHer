@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false
 """
 PromptBuilderMixin — Single-pass prompt construction for ChatAgent.
 

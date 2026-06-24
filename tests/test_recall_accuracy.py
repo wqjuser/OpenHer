@@ -68,7 +68,7 @@ SCENARIO_CONTEXTS = {
 DISTANCE_THRESHOLD = 0.5
 
 
-def test_recall_for_persona(persona_id: str, lang: str = "zh"):
+def run_recall_for_persona(persona_id: str, lang: str = "zh"):
     """Test recall accuracy for one persona."""
     data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".data")
     db_path = os.path.join(data_dir, "openher.db")
@@ -126,7 +126,7 @@ def test_recall_for_persona(persona_id: str, lang: str = "zh"):
     return accuracy, diversity_ok
 
 
-def test_json_db_consistency():
+def check_json_db_consistency():
     """Verify JSON original data matches DB data (if JSON still exists)."""
     import glob
     data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".data")
@@ -179,18 +179,22 @@ def test_json_db_consistency():
     return all_ok
 
 
+def test_json_db_consistency():
+    assert check_json_db_consistency()
+
+
 def main():
     personas = ["kelly", "iris", "ember", "kai", "vivian"]
 
     # Engine-level recall
     results = {}
     for pid in personas:
-        r = test_recall_for_persona(pid, lang="zh")
+        r = run_recall_for_persona(pid, lang="zh")
         if r is not None:
             results[pid] = r
 
     # JSON vs DB consistency
-    consistency_ok = test_json_db_consistency()
+    consistency_ok = check_json_db_consistency()
 
     # Summary
     print(f"\n{'═' * 70}")

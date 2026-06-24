@@ -40,7 +40,7 @@ def render_prompt(name: str, fallback: str = "", **kwargs) -> str:
     return Template(tmpl).safe_substitute(**kwargs)
 
 
-def load_signal_config(fallback_signals: dict = None, fallback_drives: dict = None) -> dict:
+def load_signal_config(fallback_signals: Optional[dict] = None, fallback_drives: Optional[dict] = None) -> dict:
     """Load signal_buckets.yaml → structured config with labels + buckets + drives.
 
     Returns:

@@ -194,7 +194,7 @@ class Agent:
     the random network's computation.
     """
 
-    def __init__(self, seed: int, engine_params: dict = None):
+    def __init__(self, seed: int, engine_params: Optional[dict] = None):
         self.seed = seed
         rng = random.Random(seed)
 
@@ -287,7 +287,7 @@ class Agent:
             self.drive_state[d] = min(1.0, self.drive_state[d] + self.drive_accumulation_rate[d])
 
     def learn(self, signals: dict, reward: float, context: dict,
-              drive_satisfaction: dict = None):
+              drive_satisfaction: Optional[dict] = None):
         """
         Hebbian learning: reinforce connections that produced good results.
         Includes frustration accumulation, phase transitions, and drive satisfaction.
@@ -353,7 +353,7 @@ class Agent:
                 self.W1[i][j] = max(-2.0, min(2.0, self.W1[i][j]))
 
     def step(self, context: dict, reward: float = 0.0,
-             drive_satisfaction: dict = None) -> dict:
+             drive_satisfaction: Optional[dict] = None) -> dict:
         """One full cycle: sense → compute signals → learn → tick drives."""
         signals = self.compute_signals(context)
         self.learn(signals, reward, context, drive_satisfaction=drive_satisfaction)
@@ -363,7 +363,7 @@ class Agent:
 
     def get_dominant_drive(self) -> str:
         """Return the most urgent drive."""
-        return max(self.drive_state, key=self.drive_state.get)
+        return max(self.drive_state, key=lambda drive: self.drive_state[drive])
 
     def personality_fingerprint(self, window_size: int = 30) -> dict:
         """
@@ -438,8 +438,8 @@ class Agent:
 
     def to_prompt_injection_from_signals(
         self, signals: dict,
-        signal_overrides: dict = None,
-        frustration: dict = None,
+        signal_overrides: Optional[dict] = None,
+        frustration: Optional[dict] = None,
         lang: str = 'zh',
     ) -> str:
         """
