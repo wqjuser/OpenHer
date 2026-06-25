@@ -9,6 +9,10 @@ from typing import Any, Callable, Optional
 from agent.chat_agent import ChatAgent
 from engine.state_store import StateStore
 from providers.memory.evermemos.evermemos_client import EverMemOSClient
+from server.proactive_delivery import (
+    ProactiveDeliveryResult,
+    ProactiveOutboxDeliveryService,
+)
 from server.session_manager import SessionManager
 
 
@@ -48,6 +52,7 @@ class ProactiveService:
         config: Optional[dict[str, Any]] = None,
         interval_seconds: int = 300,
         initial_delay_seconds: int = 60,
+        delivery_service: Optional[ProactiveOutboxDeliveryService] = None,
     ):
         self.state_store = state_store
         self.session_manager = session_manager
@@ -59,6 +64,11 @@ class ProactiveService:
         self.interval_seconds = interval_seconds
         self.initial_delay_seconds = initial_delay_seconds
         self.metrics = default_proactive_metrics()
+        self.delivery_service = delivery_service or ProactiveOutboxDeliveryService(
+            state_store=state_store,
+            evermemos=evermemos,
+            ws_connections=ws_connections,
+        )
 
     async def heartbeat_loop(self) -> None:
         """Background loop for proactive sweeps."""
@@ -134,97 +144,16 @@ class ProactiveService:
 
     async def deliver_message(self, agent: ChatAgent, session_id: str, row: dict[str, Any]) -> None:
         """Deliver one proactive outbox message through the persona engine and WebSocket."""
-        uid = row["user_id"]
-        pid = row["persona_id"]
-        tick_id = row["tick_id"]
-        raw_reply = row["reply"]
-        drive_id = row.get("drive_id", "")
+        result = await self.delivery_service.deliver(agent, session_id, row)
+        self._apply_delivery_result(result)
 
-        msg = self.state_store.outbox_try_send(uid, pid, tick_id)
-        if not msg:
-            return
-
-        stimulus = f"[系统指令] 你现在想主动对用户说话。以下是你想表达的内容，请用你认为的方式表达出来：\n{raw_reply}"
-        try:
-            engine_result = await agent.chat(stimulus, is_proactive=True)
-            reply = engine_result.get("reply", raw_reply)
-            modality = engine_result.get("modality", "文字")
-            segments = engine_result.get("segments")
-            delays_ms = engine_result.get("delays_ms")
-            print(f"  [proactive] engine re-processed: modality={modality}, segments={len(segments) if segments else 0}")
-        except Exception as e:
-            print(f"  [proactive] engine re-process failed, using raw reply: {e}")
-            reply = raw_reply
-            modality = row.get("modality", "文字")
-            segments = None
-            delays_ms = None
-
-        ws_set = self.ws_connections.get(session_id, set())
-        if not ws_set:
-            self.state_store.outbox_mark_failed(uid, pid, tick_id)
-            return
-
-        sent_count = 0
-        try:
-            for ws in list(ws_set):
-                try:
-                    if segments and len(segments) > 1:
-                        for i, seg in enumerate(segments):
-                            if i > 0:
-                                await ws.send_json({
-                                    "type": "chat_start",
-                                    "session_id": session_id,
-                                })
-                                delay = delays_ms[i] if delays_ms and i < len(delays_ms) else 300
-                                await asyncio.sleep(max(delay, 300) / 1000.0)
-                            await ws.send_json({
-                                "type": "chat_end",
-                                "reply": seg,
-                                "modality": modality,
-                                "proactive": True,
-                                "drive": drive_id,
-                                "persona": agent.persona.name,
-                            })
-                    else:
-                        await ws.send_json({
-                            "type": "proactive",
-                            "content": reply,
-                            "modality": modality,
-                            "drive": drive_id,
-                            "persona": agent.persona.name,
-                        })
-                    sent_count += 1
-                except Exception:
-                    ws_set.discard(ws)
-            if sent_count == 0:
-                print("  [proactive] WS push failed: no active clients accepted message")
-                self.metrics["ws_push_fail"] += 1
-                self.state_store.outbox_mark_failed(uid, pid, tick_id)
-                return
-            print(f"  [proactive] WS pushed to {sent_count} client(s): {reply[:40]}")
-            self.metrics["ws_push_ok"] += 1
-        except Exception as ws_err:
-            print(f"  [proactive] WS push failed: {ws_err}")
+    def _apply_delivery_result(self, result: ProactiveDeliveryResult) -> None:
+        if result.ws_push_failed:
             self.metrics["ws_push_fail"] += 1
-            self.state_store.outbox_mark_failed(uid, pid, tick_id)
-            return
-
-        try:
-            if self.evermemos and self.evermemos.available:
-                await self.evermemos.store_proactive_turn(
-                    user_id=uid,
-                    persona_id=pid,
-                    persona_name=agent.persona.name,
-                    group_id=agent._group_id,
-                    reply=reply,
-                    tick_id=tick_id,
-                )
-        except Exception as e:
-            print(f"  [proactive] EverMemOS store failed (non-fatal): {e}")
-
-        self.state_store.outbox_mark_delivered(uid, pid, tick_id)
-        self.metrics["outbox_delivered"] += 1
-        print(f"  [proactive] delivered: {reply[:40]}")
+        if result.ws_push_ok:
+            self.metrics["ws_push_ok"] += 1
+        if result.delivered:
+            self.metrics["outbox_delivered"] += 1
 
     def metrics_snapshot(self) -> dict[str, int | float]:
         """Return counters plus derived rates for the metrics endpoint."""
