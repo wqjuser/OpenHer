@@ -2,8 +2,8 @@
 """
 EverMemosMixin — EverMemOS integration for ChatAgent.
 
-Handles session context loading, relationship EMA computation,
-background store/search, and search result collection.
+Handles session context loading, background store/search, and search result
+collection.
 """
 
 from __future__ import annotations
@@ -49,62 +49,6 @@ class EverMemosMixin:
             return empty_4d
 
         return self.evermemos.relationship_vector(self._session_ctx)
-
-    def _apply_relationship_ema(
-        self,
-        prior: dict,
-        rel_delta: dict,
-        conversation_depth: float,
-    ) -> dict:
-        """
-        Step 2.5: Semi-emergent relationship update.
-
-        Pattern: posterior = clip(prior + LLM_delta) → EMA smooth
-          alpha = clip(0.15 + 0.5 * depth, 0.15, 0.65)
-          state_t = alpha * posterior + (1 - alpha) * state_{t-1}
-
-        First turn initializes EMA state from prior, then applies delta normally.
-        """
-        # Map Critic output keys → context feature keys
-        delta_map = {
-            'relationship_depth': rel_delta.get('relationship_delta', 0.0),
-            'emotional_valence': rel_delta.get('emotional_valence', 0.0),
-            'trust_level': rel_delta.get('trust_delta', 0.0),
-            'pending_foresight': 0.0,  # No delta for foresight (data-driven only)
-        }
-
-        # Initialize EMA on first turn
-        if not self._relationship_ema:
-            self._relationship_ema = dict(prior)
-
-        # Compute posterior = clip(prior + delta)
-        posterior = {}
-        for k in prior:
-            lo = -1.0 if k == 'emotional_valence' else 0.0
-            posterior[k] = max(lo, min(1.0, prior[k] + delta_map.get(k, 0.0)))
-
-        # Depth-modulated alpha: shallow → trust prior, deep → trust LLM
-        alpha = max(0.15, min(0.65, 0.15 + 0.5 * conversation_depth))
-
-        # EMA smooth
-        ema = {}
-        for k in prior:
-            prev = self._relationship_ema.get(k, prior[k])
-            ema[k] = round(alpha * posterior[k] + (1 - alpha) * prev, 4)
-        self._relationship_ema = ema
-
-        # Observability log
-        print(
-            f"  [emergence] α={alpha:.2f} | "
-            f"depth: prior={prior['relationship_depth']:.2f} "
-            f"δ={delta_map['relationship_depth']:+.2f} → ema={ema['relationship_depth']:.3f} | "
-            f"trust: prior={prior['trust_level']:.2f} "
-            f"δ={delta_map['trust_level']:+.2f} → ema={ema['trust_level']:.3f} | "
-            f"valence: δ={delta_map['emotional_valence']:+.2f} → ema={ema['emotional_valence']:.3f} | "
-            f"foresight={ema['pending_foresight']:.2f}"
-        )
-
-        return ema
 
     def _evermemos_store_bg(self, user_message: str, reply: str) -> None:
         """Step 11: Fire-and-forget EverMemOS storage (asyncio.create_task)."""
