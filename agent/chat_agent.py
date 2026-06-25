@@ -47,6 +47,7 @@ from agent.parser import extract_reply, _parse_modality, _SECTION_RE, _TAG_MAP
 # Mixin modules (extracted from this file)
 from agent.prompt_builder import PromptBuilderMixin
 from agent.evermemos_mixin import EverMemosMixin
+from agent.memory_injection import MemoryInjectionMixin
 from agent.modality_execution import ModalityExecutionMixin
 from agent.modality_retry import ModalityRetryMixin
 from agent.proactive import ProactiveMixin
@@ -57,6 +58,7 @@ from agent.proactive import ProactiveMixin
 class ChatAgent(
     PromptBuilderMixin,
     EverMemosMixin,
+    MemoryInjectionMixin,
     ModalityExecutionMixin,
     ModalityRetryMixin,
     ProactiveMixin,
@@ -338,36 +340,7 @@ class ChatAgent(
         )
 
         # ── Step 8.5: Memory injection into prompt ──
-        if self._session_ctx and self._session_ctx.has_history:
-            await self._collect_search_results()
-            profile_budget, episode_budget = self._memory_injection_budget(context)
-            profile_text = self._blend_injection(
-                self._relevant_facts, self._user_profile, profile_budget
-            )
-            episode_text = self._blend_injection(
-                self._relevant_episodes, self._episode_summary, episode_budget
-            )
-            name = self.user_name or "你"
-            if self.persona.lang == 'en':
-                if profile_text:
-                    single_prompt += f"\n\n[{name}'s preferences] {profile_text}"
-                if episode_text:
-                    single_prompt += f"\n\n[Past interactions with {name}] {episode_text}"
-                if self._foresight_text:
-                    single_prompt += f"\n\n[Worth noting] {self._foresight_text}"
-                if self._relevant_profile:
-                    single_prompt += f"\n\n[{name}'s profile] {self._relevant_profile}"
-            else:
-                if profile_text:
-                    single_prompt += f"\n\n[关于{name}的偏好] {profile_text}"
-                if episode_text:
-                    single_prompt += f"\n\n[与{name}过去发生的事] {episode_text}"
-                if self._foresight_text:
-                    single_prompt += f"\n\n[近期值得关心] {self._foresight_text}"
-                if self._relevant_profile:
-                    single_prompt += f"\n\n[{name}的画像] {self._relevant_profile}"
-            if self._relevant_facts or self._relevant_episodes or self._relevant_profile:
-                self._search_relevant_used += 1
+        single_prompt = await self._inject_memory_context(single_prompt, context)
 
         # ── Step 9: Single-pass LLM call ──
 
@@ -558,36 +531,7 @@ class ChatAgent(
             )
 
             # ── Step 8.5: Memory injection into single-pass prompt ──
-            if self._session_ctx and self._session_ctx.has_history:
-                await self._collect_search_results()
-                profile_budget, episode_budget = self._memory_injection_budget(context)
-                profile_text = self._blend_injection(
-                    self._relevant_facts, self._user_profile, profile_budget
-                )
-                episode_text = self._blend_injection(
-                    self._relevant_episodes, self._episode_summary, episode_budget
-                )
-                name = self.user_name or "你"
-                if self.persona.lang == 'en':
-                    if profile_text:
-                        single_prompt += f"\n\n[{name}'s preferences] {profile_text}"
-                    if episode_text:
-                        single_prompt += f"\n\n[Past interactions with {name}] {episode_text}"
-                    if self._foresight_text:
-                        single_prompt += f"\n\n[Worth noting] {self._foresight_text}"
-                    if self._relevant_profile:
-                        single_prompt += f"\n\n[{name}'s profile] {self._relevant_profile}"
-                else:
-                    if profile_text:
-                        single_prompt += f"\n\n[关于{name}的偏好] {profile_text}"
-                    if episode_text:
-                        single_prompt += f"\n\n[与{name}过去发生的事] {episode_text}"
-                    if self._foresight_text:
-                        single_prompt += f"\n\n[近期值得关心] {self._foresight_text}"
-                    if self._relevant_profile:
-                        single_prompt += f"\n\n[{name}的画像] {self._relevant_profile}"
-                if self._relevant_facts or self._relevant_episodes or self._relevant_profile:
-                    self._search_relevant_used += 1
+            single_prompt = await self._inject_memory_context(single_prompt, context)
 
             # ── Step 9: Single-pass LLM call (streamed) ──
             single_messages = [ChatMessage(role="system", content=single_prompt)]
