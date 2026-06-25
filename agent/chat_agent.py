@@ -35,7 +35,7 @@ from typing import AsyncIterator, Optional
 
 from providers.llm.client import LLMClient, ChatMessage, ChatResponse
 from persona.loader import Persona
-from engine.genome.genome_engine import Agent, DRIVES, SIGNALS, DRIVE_LABELS
+from engine.genome.genome_engine import Agent, DRIVES, SIGNALS
 from engine.genome.drive_metabolism import DriveMetabolism, apply_thermodynamic_noise
 from engine.genome.critic import critic_sense
 from engine.genome.style_memory import ContinuousStyleMemory
@@ -48,6 +48,7 @@ from agent.parser import extract_reply, _parse_modality, _SECTION_RE, _TAG_MAP
 from agent.prompt_builder import PromptBuilderMixin
 from agent.evermemos_mixin import EverMemosMixin
 from agent.memory_injection import MemoryInjectionMixin
+from agent.status import AgentStatusMixin
 from agent.modality_execution import ModalityExecutionMixin
 from agent.modality_retry import ModalityRetryMixin
 from agent.proactive import ProactiveMixin
@@ -59,6 +60,7 @@ class ChatAgent(
     PromptBuilderMixin,
     EverMemosMixin,
     MemoryInjectionMixin,
+    AgentStatusMixin,
     ModalityExecutionMixin,
     ModalityRetryMixin,
     ProactiveMixin,
@@ -598,118 +600,6 @@ class ChatAgent(
     # See agent/modality_retry.py (ModalityRetryMixin)
 
 
-
-    def get_status(self) -> dict:
-        """Get comprehensive agent status including genome state."""
-        mem_stats = self.style_memory.stats()
-        metabolism_status = self.metabolism.status_summary()
-
-        # Get top 3 signals for display
-        signals_summary = {}
-        if self._last_signals:
-            sorted_sigs = sorted(
-                self._last_signals.items(),
-                key=lambda x: abs(x[1] - 0.5),
-                reverse=True,
-            )[:3]
-            signals_summary = {k: round(v, 2) for k, v in sorted_sigs}
-
-        dominant_drive = self.agent.get_dominant_drive()
-
-        # Phase 3 metrics (all per-turn denominators)
-        total_searches = self._search_hit + self._search_timeout
-        search_hit_rate = self._search_hit / total_searches if total_searches else 0.0
-        search_timeout_rate = self._search_timeout / total_searches if total_searches else 0.0
-        turns = max(self._turn_count, 1)
-        fallback_rate = self._search_fallback / turns
-        relevant_injection_ratio = self._search_relevant_used / turns
-
-        return {
-            "persona": self.persona.name,
-            "dominant_drive": DRIVE_LABELS.get(dominant_drive, dominant_drive),
-            "drive_baseline": {d: round(self.agent.drive_baseline[d], 3) for d in DRIVES},
-            "drive_state": {d: round(self.agent.drive_state[d], 3) for d in DRIVES},
-            "drive_satisfaction": {d: round(v, 3) for d, v in self._last_drive_satisfaction.items()} if self._last_drive_satisfaction else {},
-            "signals": signals_summary,
-            "temperature": metabolism_status['temperature'],
-            "frustration": metabolism_status['total'],
-            "history_length": len(self.history),
-            "turn_count": self._turn_count,
-            "memory_count": mem_stats.get('total', 0),
-            "personal_memories": mem_stats.get('personal_count', 0),
-            "age": self.agent.age,
-            "last_reward": round(self._last_reward, 2),
-            "modality": self._last_modality,
-            # Relationship EMAs (Phase 1 Emergence)
-            "relationship": {
-                "depth": round(self._relationship_ema.get('relationship_depth', 0.0), 3),
-                "trust": round(self._relationship_ema.get('trust_level', 0.0), 3),
-                "valence": round(self._relationship_ema.get('emotional_valence', 0.0), 3),
-            },
-            "evermemos": "ON" if (self.evermemos and self.evermemos.available) else "OFF",
-            "search_hit": self._search_hit,
-            "search_timeout": self._search_timeout,
-            "search_fallback": self._search_fallback,
-            "search_hit_rate": round(search_hit_rate, 3),
-            "search_timeout_rate": round(search_timeout_rate, 3),
-            "fallback_rate": round(fallback_rate, 3),
-            "relevant_injection_ratio": round(relevant_injection_ratio, 3),
-            **self._skill_outputs,  # all skill outputs auto-forwarded
-        }
-
-    def get_debug_status(self) -> dict:
-        """Get full engine state for developer visualization (Plan B: activations only).
-
-        Returns comprehensive debug data for the neural network visualization
-        panel. Only called when client sends debug: true.
-        """
-        # 25D input vector
-        input_vec = self.agent._last_input or [0.0] * 25
-
-        # 24D hidden layer activations
-        hidden_vec = self.agent._last_hidden or [0.0] * 24
-
-        # 8D behavioral signals (after noise)
-        sig = {}
-        if self._last_signals:
-            sig = {s: round(v, 4) for s, v in self._last_signals.items()}
-
-        # 12D context vector (from Critic, after relationship merge)
-        ctx = {}
-        if self._last_critic:
-            ctx = {k: round(v, 4) if isinstance(v, float) else v
-                   for k, v in self._last_critic.items()}
-
-        drive_st = {d: round(self.agent.drive_state[d], 4) for d in DRIVES}
-        sig_str = ' '.join(f'{k[:3]}={v:.2f}' for k, v in sig.items())
-        drv_str = ' '.join(f'{k[:3]}={v:.2f}' for k, v in drive_st.items())
-        mono_preview = (self._last_action.get("monologue", "") if self._last_action else "")[:40]
-        print(f"  [debug-viz] signals: {sig_str}")
-        print(f"  [debug-viz] drives:  {drv_str}")
-        print(f"  [debug-viz] mono:    {mono_preview}")
-
-        return {
-            "context_vector": ctx,
-            "signals": sig,
-            "hidden_activations": [round(h, 4) for h in hidden_vec],
-            "input_vector": [round(v, 4) for v in input_vec],
-            "drive_state": drive_st,
-            "drive_baseline": {d: round(self.agent.drive_baseline[d], 4) for d in DRIVES},
-            "frustration": {d: round(self.metabolism.frustration[d], 4) for d in DRIVES},
-            "total_frustration": round(self.metabolism.total(), 4),
-            "temperature": round(self.metabolism.temperature(), 4),
-            "monologue": self._last_action.get("monologue", "") if self._last_action else "",
-            "style_recall": self.style_memory.last_recall_info(),
-            "relationship": {
-                "depth":   round(self._relationship_ema.get("relationship_depth", 0.0), 4),
-                "trust":   round(self._relationship_ema.get("trust_level", 0.0), 4),
-                "valence": round(self._relationship_ema.get("emotional_valence", 0.0), 4),
-            },
-            "reward": round(self._last_reward, 4),
-            "age": self.agent.age,
-            "turn_count": self._turn_count,
-            "phase_transition": getattr(self.agent, '_last_phase_transition', False),
-        }
 
     # ── Proactive Tick ──
     # See agent/proactive.py (ProactiveMixin)
