@@ -459,6 +459,41 @@ class TestReactLoop:
         assert result is not None
         assert "Beijing: 22C" in result
 
+    async def test_react_blank_activate_is_treated_as_no_skill_needed(self, tool_skill_dir, capsys):
+        """Blank activate values from the LLM should not be logged as unknown skills."""
+        class MockLLM:
+            async def chat(self, msgs, **kw):
+                return ChatResponse(content='{"activate": "", "thought": "no tool"}')
+
+        engine = TaskSkillEngine(str(tool_skill_dir))
+        engine.load_all()
+        result = await engine.react_loop("随便聊聊", MockLLM())
+        captured = capsys.readouterr()
+
+        assert result is None
+        assert "Unknown skill" not in captured.out
+
+    async def test_react_normalizes_activation_skill_id(self, tool_skill_dir):
+        """Activation ids should be stripped and lowercased before lookup."""
+        call_count = 0
+
+        class MockLLM:
+            async def chat(self, msgs, **kw):
+                nonlocal call_count
+                call_count += 1
+                if call_count == 1:
+                    return ChatResponse(content='{"activate": " WEATHER ", "thought": "用户问天气"}')
+                if call_count == 2:
+                    return ChatResponse(content='{"actions": [{"tool": "execute_shell", "params": {"command": "echo Beijing: 22C"}}]}')
+                return ChatResponse(content='{"done": true}')
+
+        engine = TaskSkillEngine(str(tool_skill_dir))
+        engine.load_all()
+        result = await engine.react_loop("北京天气怎么样", MockLLM())
+
+        assert result is not None
+        assert "Beijing: 22C" in result
+
     async def test_react_max_rounds(self, tool_skill_dir):
         """Max rounds prevents infinite loops."""
         class MockLLM:
