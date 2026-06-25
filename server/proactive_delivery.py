@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Optional
+
+from server.proactive_ws_push import ProactivePushPayload, ProactiveWebSocketPushService
 
 
 SleepFunc = Callable[[float], Awaitable[Any]]
@@ -30,11 +32,12 @@ class ProactiveOutboxDeliveryService:
         evermemos: Any,
         ws_connections: dict[str, set[Any]],
         sleep: SleepFunc = asyncio.sleep,
+        push_service: Optional[ProactiveWebSocketPushService] = None,
     ) -> None:
         self.state_store = state_store
         self.evermemos = evermemos
         self.ws_connections = ws_connections
-        self.sleep = sleep
+        self.push_service = push_service or ProactiveWebSocketPushService(sleep=sleep)
 
     async def deliver(
         self,
@@ -149,24 +152,18 @@ class ProactiveOutboxDeliveryService:
         try:
             for ws in list(ws_set):
                 try:
-                    if segments and len(segments) > 1:
-                        await self._send_segments(
-                            ws=ws,
-                            session_id=session_id,
-                            agent=agent,
+                    await self.push_service.push(
+                        ws,
+                        session_id=session_id,
+                        payload=ProactivePushPayload(
+                            reply=reply,
+                            modality=modality,
                             segments=segments,
                             delays_ms=delays_ms,
-                            modality=modality,
-                            drive_id=drive_id,
-                        )
-                    else:
-                        await ws.send_json({
-                            "type": "proactive",
-                            "content": reply,
-                            "modality": modality,
-                            "drive": drive_id,
-                            "persona": agent.persona.name,
-                        })
+                            drive=drive_id,
+                            persona=agent.persona.name,
+                        ),
+                    )
                     sent_count += 1
                 except Exception:
                     ws_set.discard(ws)
@@ -174,34 +171,6 @@ class ProactiveOutboxDeliveryService:
         except Exception as ws_err:
             print(f"  [proactive] WS push failed: {ws_err}")
             return 0
-
-    async def _send_segments(
-        self,
-        *,
-        ws: Any,
-        session_id: str,
-        agent: Any,
-        segments: Any,
-        delays_ms: Any,
-        modality: str,
-        drive_id: str,
-    ) -> None:
-        for i, seg in enumerate(segments):
-            if i > 0:
-                await ws.send_json({
-                    "type": "chat_start",
-                    "session_id": session_id,
-                })
-                delay = delays_ms[i] if delays_ms and i < len(delays_ms) else 300
-                await self.sleep(max(delay, 300) / 1000.0)
-            await ws.send_json({
-                "type": "chat_end",
-                "reply": seg,
-                "modality": modality,
-                "proactive": True,
-                "drive": drive_id,
-                "persona": agent.persona.name,
-            })
 
     async def _store_proactive_turn(
         self,
