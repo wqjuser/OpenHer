@@ -633,11 +633,12 @@ class ServerBoundaryRegressionTests(unittest.TestCase):
 class APIAuthRegressionTests(unittest.TestCase):
     def test_optional_api_token_protects_http_and_websocket_entrypoints(self):
         main_source = (ROOT / "main.py").read_text(encoding="utf-8")
+        websocket_source = (ROOT / "server" / "routes" / "websocket.py").read_text(encoding="utf-8")
 
         self.assertIn("OPENHER_API_TOKEN", main_source)
-        self.assertIn('@app.middleware("http")', main_source)
+        self.assertIn('server_app.middleware("http")(require_api_token)', main_source)
         self.assertIn("Authorization", main_source)
-        self.assertIn("await ws.close(code=1008)", main_source)
+        self.assertIn("await ws.close(code=1008)", websocket_source)
 
 
 class FastAPILifespanRegressionTests(unittest.TestCase):
@@ -653,10 +654,18 @@ class ExternalEndpointErrorTests(unittest.TestCase):
     def test_external_endpoint_failures_return_json_errors(self):
         from fastapi.testclient import TestClient
         import main
+        from server.context import AppContext
 
         class FailingAgent:
             async def chat(self, _message):
                 raise RuntimeError("provider unavailable")
+
+        class FailingSessionManager:
+            def get_or_create(self, *_args):
+                return "sid", FailingAgent()
+
+            def persist_agent(self, _agent):
+                raise AssertionError("failing agent should not be persisted")
 
         class FailingTTS:
             async def synthesize(self, **_kwargs):
@@ -666,13 +675,13 @@ class ExternalEndpointErrorTests(unittest.TestCase):
             async def generate(self, **_kwargs):
                 raise RuntimeError("image unavailable")
 
-        with (
-            patch.object(main, "get_or_create_session", return_value=("sid", FailingAgent())),
-            patch.object(main, "tts_engine", FailingTTS()),
-            patch("providers.registry.get_image_gen", return_value=FailingImageProvider()),
-        ):
-            client = TestClient(main.app, raise_server_exceptions=False)
+        context = AppContext()
+        context.session_manager = FailingSessionManager()
+        context.tts_engine = FailingTTS()
+        app = main.create_app(context)
 
+        with patch("providers.registry.get_image_gen", return_value=FailingImageProvider()):
+            client = TestClient(app, raise_server_exceptions=False)
             chat_resp = client.post(
                 "/api/chat",
                 json={"message": "hi", "persona_id": "luna", "client_id": "qa"},
@@ -692,6 +701,7 @@ class ExternalEndpointErrorTests(unittest.TestCase):
     def test_external_failed_results_return_bad_gateway(self):
         from fastapi.testclient import TestClient
         import main
+        from server.context import AppContext
 
         class FailedResult:
             success = False
@@ -707,11 +717,12 @@ class ExternalEndpointErrorTests(unittest.TestCase):
             async def generate(self, **_kwargs):
                 return FailedResult()
 
-        with (
-            patch.object(main, "tts_engine", FailedTTS()),
-            patch("providers.registry.get_image_gen", return_value=FailedImageProvider()),
-        ):
-            client = TestClient(main.app, raise_server_exceptions=False)
+        context = AppContext()
+        context.tts_engine = FailedTTS()
+        app = main.create_app(context)
+
+        with patch("providers.registry.get_image_gen", return_value=FailedImageProvider()):
+            client = TestClient(app, raise_server_exceptions=False)
             tts_resp = client.get("/api/tts?text=hi")
             image_resp = client.post("/api/image?prompt=portrait")
 
