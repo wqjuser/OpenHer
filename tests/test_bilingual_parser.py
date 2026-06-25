@@ -1,7 +1,8 @@
 """Tests for bilingual output parser (extract_reply, _extract_monologue, _parse_modality)."""
 
 import pytest
-from agent.chat_agent import extract_reply, _parse_modality, _SECTION_RE, _TAG_MAP, ChatAgent
+from agent.chat_agent import ChatAgent
+from agent.parser import extract_reply, _parse_modality, _SECTION_RE, _TAG_MAP
 from agent.output_router import parse_raw_output
 
 

@@ -85,8 +85,12 @@ def test_modality_execution_falls_back_to_text_when_all_skills_fail():
 
 def test_chat_agent_delegates_modality_execution_boundary():
     source = (ROOT / "agent/chat_agent.py").read_text(encoding="utf-8")
+    response_runtime_source = (ROOT / "agent/response_runtime.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "from agent.modality_execution import ModalityExecutionMixin" in source
     assert "ModalityExecutionMixin" in source
-    assert source.count("_execute_modality_skills(") == 2
+    assert "_execute_modality_skills(" not in source
+    assert response_runtime_source.count("_execute_modality_skills(") == 2
     assert "plan_and_execute(" not in source
