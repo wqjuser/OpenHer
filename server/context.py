@@ -19,6 +19,7 @@ from providers.memory.evermemos.evermemos_client import EverMemOSClient
 from server.chat_api_service import ChatApiService
 from server.demo_inject import DemoInjectService
 from server.media_api_service import MediaApiService
+from server.persona_api_service import PersonaApiService
 from server.proactive_service import ProactiveService
 from server.session_manager import SessionManager
 from server.websocket_chat import WebSocketChatTurnService
@@ -79,6 +80,7 @@ class AppContext:
     session_manager: SessionManagerService | None = None
     chat_api_service: ChatApiService | None = None
     media_api_service: MediaApiService | None = None
+    persona_api_service: PersonaApiService | None = None
     proactive_service: ProactiveService | None = None
     proactive_task: asyncio.Task[None] | None = None
     ws_registry: WebSocketConnectionRegistry = field(default_factory=WebSocketConnectionRegistry)
