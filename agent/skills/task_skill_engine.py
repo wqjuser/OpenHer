@@ -191,7 +191,9 @@ class TaskSkillEngine:
 
             # activate_skill — JIT inject SKILL.md body (L2)
             if "activate" in parsed:
-                skill_id = parsed["activate"].lower()
+                skill_id = self._normalize_skill_id(parsed.get("activate"))
+                if not skill_id:
+                    break
                 skill = self._skills.get(skill_id)
                 if not skill:
                     print(f"  [react] ⚠ Unknown skill: {skill_id}")
@@ -391,6 +393,14 @@ class TaskSkillEngine:
         return None
 
     @staticmethod
+    def _normalize_skill_id(raw_skill_id: object) -> Optional[str]:
+        """Normalize an LLM-emitted skill id, returning None for blank values."""
+        if not isinstance(raw_skill_id, str):
+            return None
+        skill_id = raw_skill_id.strip().lower()
+        return skill_id or None
+
+    @staticmethod
     def _find_first_json_object(text: str) -> Optional[str]:
         """Find the first balanced {...} block using bracket counting."""
         start = text.find("{")
@@ -432,7 +442,7 @@ class TaskSkillEngine:
         """
         from providers.llm.base import ChatMessage
 
-        skill_id = skill_id.lower()
+        skill_id = self._normalize_skill_id(skill_id) or ""
         skill = self._skills.get(skill_id)
         if not skill:
             return SkillExecutionResult(
