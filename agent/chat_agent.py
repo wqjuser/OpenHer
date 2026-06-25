@@ -47,6 +47,7 @@ from agent.parser import extract_reply, _parse_modality, _SECTION_RE, _TAG_MAP
 # Mixin modules (extracted from this file)
 from agent.prompt_builder import PromptBuilderMixin
 from agent.task_skills import AgentTaskSkillMixin
+from agent.turn_state import AgentTurnStateMixin
 from agent.evermemos_mixin import EverMemosMixin
 from agent.relationship import AgentRelationshipMixin
 from agent.memory_injection import MemoryInjectionMixin
@@ -61,6 +62,7 @@ from agent.proactive import ProactiveMixin
 class ChatAgent(
     PromptBuilderMixin,
     AgentTaskSkillMixin,
+    AgentTurnStateMixin,
     EverMemosMixin,
     AgentRelationshipMixin,
     MemoryInjectionMixin,
@@ -236,18 +238,7 @@ class ChatAgent(
         user_message = await self._run_task_skills(user_message)
 
         # ── Step 0: persona engine (zero changes below this line) ──
-        self._turn_count += 1
-        self._turn_used_fallback = False  # Reset per-turn fallback flag
-        now = time.time()
-
-        # Update interaction cadence (EMA)
-        if self._last_active > 0:
-            delta = now - self._last_active
-            if self._interaction_cadence > 0:
-                self._interaction_cadence = 0.3 * delta + 0.7 * self._interaction_cadence
-            else:
-                self._interaction_cadence = delta
-        self._last_active = now
+        now = self._begin_turn()
 
         # ── Step 0: EverMemOS session context (first turn only) ──
         relationship_prior = await self._evermemos_gather()
@@ -416,18 +407,7 @@ class ChatAgent(
             user_message = await self._run_task_skills(user_message)
 
             # ── Step 0: persona engine (zero changes below this line) ──
-            self._turn_count += 1
-            self._turn_used_fallback = False
-            now = time.time()
-
-            # Update interaction cadence (EMA)
-            if self._last_active > 0:
-                delta = now - self._last_active
-                if self._interaction_cadence > 0:
-                    self._interaction_cadence = 0.3 * delta + 0.7 * self._interaction_cadence
-                else:
-                    self._interaction_cadence = delta
-            self._last_active = now
+            now = self._begin_turn()
 
             # ── Step 0: EverMemOS session context (first turn only) ──
             relationship_prior = await self._evermemos_gather()
