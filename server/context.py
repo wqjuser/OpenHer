@@ -16,6 +16,7 @@ from memory.memory_store import MemoryStore
 from providers.llm import LLMClient
 from providers.media.tts_engine import TTSResult
 from providers.memory.evermemos.evermemos_client import EverMemOSClient
+from server.chat_api_service import ChatApiService
 from server.demo_inject import DemoInjectService
 from server.proactive_service import ProactiveService
 from server.session_manager import SessionManager
@@ -75,6 +76,7 @@ class AppContext:
     evermemos: EverMemOSClient | None = None
     cron_scheduler: CronScheduler | None = None
     session_manager: SessionManagerService | None = None
+    chat_api_service: ChatApiService | None = None
     proactive_service: ProactiveService | None = None
     proactive_task: asyncio.Task[None] | None = None
     ws_registry: WebSocketConnectionRegistry = field(default_factory=WebSocketConnectionRegistry)
