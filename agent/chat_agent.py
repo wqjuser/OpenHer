@@ -48,6 +48,7 @@ from agent.prompt_builder import PromptBuilderMixin
 from agent.task_skills import AgentTaskSkillMixin
 from agent.turn_state import AgentTurnStateMixin
 from agent.critic_context import AgentCriticContextMixin
+from agent.actor_messages import AgentActorMessagesMixin
 from agent.drive_lifecycle import AgentDriveLifecycleMixin
 from agent.turn_finalization import AgentTurnFinalizationMixin
 from agent.evermemos_mixin import EverMemosMixin
@@ -66,6 +67,7 @@ class ChatAgent(
     AgentTaskSkillMixin,
     AgentTurnStateMixin,
     AgentCriticContextMixin,
+    AgentActorMessagesMixin,
     AgentDriveLifecycleMixin,
     AgentTurnFinalizationMixin,
     EverMemosMixin,
@@ -266,35 +268,8 @@ class ChatAgent(
         self._evolve_drive_baseline(frustration_delta)
         self._crystallize_last_action_if_needed(reward, context, now)
 
-        # ── Step 5: Compute signals (context from Critic directly) ──
-        base_signals = self.agent.compute_signals(context)
-
-        # ── Step 6: Thermodynamic noise ──
-        total_frust = self.metabolism.total()
-        noisy_signals = self.metabolism.apply_thermodynamic_noise(base_signals)
-        self._prev_signals = self._last_signals  # Track for trend injection
-        self._last_signals = noisy_signals
-
-        # ── Step 7: KNN retrieval (full examples for single-pass) ──
-        self.style_memory.set_clock(now)
-        few_shot = self.style_memory.build_few_shot_prompt(
-            context, top_k=3, monologue_only=False, lang=self.persona.lang,
-        )
-
-        # ── Step 8: Build single-pass prompt (actor_single template) ──
-        single_prompt = self._build_single_prompt(
-            few_shot, noisy_signals,
-            modality_skill_engine=self.modality_skill_engine,
-        )
-
-        # ── Step 8.5: Memory injection into prompt ──
-        single_prompt = await self._inject_memory_context(single_prompt, context)
-
-        # ── Step 9: Single-pass LLM call ──
-
-        single_messages = [ChatMessage(role="system", content=single_prompt)]
-        single_messages.extend(self.history[-self.max_history:])  # Full history
-        single_messages.append(ChatMessage(role="user", content=user_message))
+        # ── Step 5-8.5: Actor prompt and message preparation ──
+        single_messages = await self._prepare_actor_messages(user_message, context, now)
 
         # Notify caller that prompt is built (typing indicator can start)
         if on_feel_done:
@@ -368,32 +343,8 @@ class ChatAgent(
             self._evolve_drive_baseline(frustration_delta)
             self._crystallize_last_action_if_needed(reward, context, now)
 
-            # ── Steps 5-6: Signals + noise ──
-            base_signals = self.agent.compute_signals(context)
-            total_frust = self.metabolism.total()
-            noisy_signals = self.metabolism.apply_thermodynamic_noise(base_signals)
-            self._prev_signals = self._last_signals  # Track for trend injection
-            self._last_signals = noisy_signals
-
-            # ── Step 7: KNN retrieval (full examples for single-pass) ──
-            self.style_memory.set_clock(now)
-            few_shot = self.style_memory.build_few_shot_prompt(
-                context, top_k=3, monologue_only=False, lang=self.persona.lang,
-            )
-
-            # ── Step 8: Build single-pass prompt (actor_single template) ──
-            single_prompt = self._build_single_prompt(
-                few_shot, noisy_signals,
-                modality_skill_engine=self.modality_skill_engine,
-            )
-
-            # ── Step 8.5: Memory injection into single-pass prompt ──
-            single_prompt = await self._inject_memory_context(single_prompt, context)
-
-            # ── Step 9: Single-pass LLM call (streamed) ──
-            single_messages = [ChatMessage(role="system", content=single_prompt)]
-            single_messages.extend(self.history[-self.max_history:])
-            single_messages.append(ChatMessage(role="user", content=user_message))
+            # ── Step 5-8.5: Actor prompt and message preparation ──
+            single_messages = await self._prepare_actor_messages(user_message, context, now)
 
             # Signal to stream consumer that prompt is ready → "typing" can start
             yield "__FEEL_DONE__"
