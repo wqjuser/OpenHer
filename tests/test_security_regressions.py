@@ -654,7 +654,7 @@ class ExternalEndpointErrorTests(unittest.TestCase):
     def test_external_endpoint_failures_return_json_errors(self):
         from fastapi.testclient import TestClient
         import main
-        from server.context import AppContext
+        from server.context import AppContext, SessionManagerService, TTSEngineService
 
         class FailingAgent:
             async def chat(self, _message):
@@ -676,8 +676,8 @@ class ExternalEndpointErrorTests(unittest.TestCase):
                 raise RuntimeError("image unavailable")
 
         context = AppContext()
-        context.session_manager = FailingSessionManager()
-        context.tts_engine = FailingTTS()
+        context.session_manager = cast(SessionManagerService, FailingSessionManager())
+        context.tts_engine = cast(TTSEngineService, FailingTTS())
         app = main.create_app(context)
 
         with patch("providers.registry.get_image_gen", return_value=FailingImageProvider()):
@@ -701,7 +701,7 @@ class ExternalEndpointErrorTests(unittest.TestCase):
     def test_external_failed_results_return_bad_gateway(self):
         from fastapi.testclient import TestClient
         import main
-        from server.context import AppContext
+        from server.context import AppContext, TTSEngineService
 
         class FailedResult:
             success = False
@@ -718,7 +718,7 @@ class ExternalEndpointErrorTests(unittest.TestCase):
                 return FailedResult()
 
         context = AppContext()
-        context.tts_engine = FailedTTS()
+        context.tts_engine = cast(TTSEngineService, FailedTTS())
         app = main.create_app(context)
 
         with patch("providers.registry.get_image_gen", return_value=FailedImageProvider()):

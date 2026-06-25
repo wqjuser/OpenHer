@@ -28,6 +28,8 @@ async def tts_api(
     if not text:
         raise HTTPException(status_code=400, detail="Text is required")
     ctx = context_from_request(request)
+    if not ctx.tts_engine:
+        raise HTTPException(status_code=503, detail="TTS engine is not initialized")
     try:
         result = await ctx.tts_engine.synthesize(
             text=text,
