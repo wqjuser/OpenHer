@@ -83,10 +83,12 @@ def test_memory_injection_skips_when_session_has_no_history():
 
 def test_chat_agent_delegates_memory_injection_boundary():
     source = (ROOT / "agent/chat_agent.py").read_text(encoding="utf-8")
+    actor_messages_source = (ROOT / "agent/actor_messages.py").read_text(encoding="utf-8")
 
     assert "from agent.memory_injection import MemoryInjectionMixin" in source
     assert "MemoryInjectionMixin" in source
-    assert source.count("_inject_memory_context(") == 2
+    assert "_inject_memory_context(" not in source
+    assert "host._inject_memory_context(" in actor_messages_source
     assert "await self._collect_search_results()" not in source
     assert "[关于{name}的偏好]" not in source
     assert "[Past interactions with {name}]" not in source
