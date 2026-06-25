@@ -47,13 +47,20 @@ from agent.parser import extract_reply, _parse_modality, _SECTION_RE, _TAG_MAP
 # Mixin modules (extracted from this file)
 from agent.prompt_builder import PromptBuilderMixin
 from agent.evermemos_mixin import EverMemosMixin
+from agent.modality_execution import ModalityExecutionMixin
 from agent.modality_retry import ModalityRetryMixin
 from agent.proactive import ProactiveMixin
 
 
 
 
-class ChatAgent(PromptBuilderMixin, EverMemosMixin, ModalityRetryMixin, ProactiveMixin):
+class ChatAgent(
+    PromptBuilderMixin,
+    EverMemosMixin,
+    ModalityExecutionMixin,
+    ModalityRetryMixin,
+    ProactiveMixin,
+):
     """
     Genome v8 lifecycle-powered persona chat agent.
 
@@ -376,48 +383,13 @@ class ChatAgent(PromptBuilderMixin, EverMemosMixin, ModalityRetryMixin, Proactiv
         monologue, reply, modality = extract_reply(single_response.content)
 
         # ── Step 9b: Modality skill execution ──
-        self._skill_outputs = {}     # reset each turn
-        self._pending_retry = None    # reset each turn
-        skill_result = None           # default when no skill runs
-
-        # Extract raw modality text (full LLM output after 【表达方式】)
-        _raw_mod = ""
-        _matches = list(_SECTION_RE.finditer(single_response.content))
-        if _matches:
-            _raw_mod = single_response.content[_matches[-1].end():].strip()
-            print(f"  [express] raw_modality='{_raw_mod[:80]}'")
-
-        # Scan raw_modality for registered SKILL keywords — LLM plans execution
-        if self.modality_skill_engine and _raw_mod:
-            skill_results = await self.modality_skill_engine.plan_and_execute(
-                raw_modality=_raw_mod,
-                raw_output=single_response.content,
-                persona=self.persona,
-                llm=self.llm,
-                chat_history=self.history,
-            )
-            for skill_result in skill_results:
-                if not skill_result.success:
-                    continue
-                self._skill_outputs.update(skill_result.output)
-
-            # Modality from LLM plan, not parser
-            if self._skill_outputs.get("_modality"):
-                modality = self._skill_outputs["_modality"]
-
-            if not skill_results:
-                # No skills matched — plain text
-                pass
-            elif all(not r.success for r in skill_results):
-                # All skills failed — fallback
-                print(f"  [skill] ⚠ All skills failed, triggering LLM fallback")
-                fallback_reply = await self._modality_failure_with_retry(
-                    modality, reply, single_response.content
-                )
-                if fallback_reply:
-                    reply = fallback_reply
-                modality = "文字"
-                self._fallback_history_added = True
+        modality_result = await self._execute_modality_skills(
+            single_response.content,
+            reply,
+            modality,
+        )
+        reply = modality_result.reply
+        modality = modality_result.modality
 
         # ── Step 10: Hebbian learning ──
         clamped_reward = max(-1.0, min(1.0, reward))
@@ -466,10 +438,9 @@ class ChatAgent(PromptBuilderMixin, EverMemosMixin, ModalityRetryMixin, Proactiv
             self._evermemos_search_bg(user_message)
 
         result = {'reply': reply, 'modality': modality}
-        if skill_result and skill_result.success:
-            for key in ('image_path', 'audio_path', 'segments', 'delays_ms'):
-                if skill_result.output.get(key):
-                    result[key] = skill_result.output[key]
+        for key in ('image_path', 'audio_path', 'segments', 'delays_ms'):
+            if modality_result.outputs.get(key):
+                result[key] = modality_result.outputs[key]
         return result
 
     # _express_wrap removed — SKILL results now injected into user_message
@@ -636,51 +607,9 @@ class ChatAgent(PromptBuilderMixin, EverMemosMixin, ModalityRetryMixin, Proactiv
             monologue, reply, modality = extract_reply(raw_text)
 
             # ── Modality — let LLM output be the authority ──
-            self._skill_outputs = {}       # reset each turn
-            self._pending_retry = None     # reset each turn
-            skill_result = None
-            _raw_mod = ""
-            _raw_modality_match = list(_SECTION_RE.finditer(raw_text))
-            if _raw_modality_match:
-                _raw_mod = raw_text[_raw_modality_match[-1].end():].strip()
-                print(f"  [express] raw_modality='{_raw_mod[:80]}'")
-
-            # Scan raw_modality for registered SKILL keywords — LLM plans execution
-            if self.modality_skill_engine and _raw_mod:
-                # Build structured JSON context for SKILL — clean boundary,
-                # prevents SKILL LLM from seeing leaked content in raw Express text
-                import json as _json
-                structured_context = _json.dumps({
-                    "reply": reply,
-                    "modality": modality,
-                }, ensure_ascii=False)
-                print(f"  [skill-context] 📦 {structured_context[:200]}")
-
-                skill_results = await self.modality_skill_engine.plan_and_execute(
-                    raw_modality=_raw_mod,
-                    raw_output=structured_context,
-                    persona=self.persona,
-                    llm=self.llm,
-                    chat_history=self.history,
-                )
-                for skill_result in skill_results:
-                    if not skill_result.success:
-                        continue
-                    self._skill_outputs.update(skill_result.output)
-
-                # Modality from LLM plan, not parser
-                if self._skill_outputs.get("_modality"):
-                    modality = self._skill_outputs["_modality"]
-
-                if skill_results and all(not r.success for r in skill_results):
-                    print(f"  [skill] ⚠ All skills failed, triggering LLM fallback")
-                    fallback_reply = await self._modality_failure_with_retry(
-                        modality, reply, raw_text
-                    )
-                    if fallback_reply:
-                        reply = fallback_reply
-                    modality = "文字"
-                    self._fallback_history_added = True
+            modality_result = await self._execute_modality_skills(raw_text, reply, modality)
+            reply = modality_result.reply
+            modality = modality_result.modality
 
             # Step 10: Hebbian learning
             clamped_reward = max(-1.0, min(1.0, reward))
