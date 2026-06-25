@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-import os
-
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from server.chat_api_service import (
+    ChatApiPersonaNotFound,
+    ChatApiProviderError,
+    ChatApiService,
+    ChatApiServiceUnavailable,
+)
 from server.context import context_from_request
-from server.errors import external_error_detail, redact_known_secrets
+from server.errors import external_error_detail
 from server.schemas import ChatRequest
 
 
@@ -17,47 +21,22 @@ router = APIRouter()
 @router.post("/api/chat")
 async def chat_api(req: ChatRequest, request: Request):
     ctx = context_from_request(request)
-    if not ctx.session_manager:
-        raise HTTPException(status_code=503, detail="Session manager is not initialized")
-    session_manager = ctx.session_manager
+    service = ctx.chat_api_service or ChatApiService(
+        session_manager=ctx.session_manager,
+        chat_log_store=ctx.chat_log_store,
+    )
     try:
-        session_id, agent = session_manager.get_or_create(
-            req.session_id, req.persona_id, req.user_name, req.client_id
-        )
-    except ValueError as e:
+        result = await service.chat(req)
+    except ChatApiServiceUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except ChatApiPersonaNotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
-
-    try:
-        result = await agent.chat(req.message)
-    except Exception as e:
-        print(f"  [chat_api] provider error: {type(e).__name__}: {str(e)[:200]}")
+    except ChatApiProviderError as e:
         raise HTTPException(
             status_code=502,
-            detail=external_error_detail("Chat provider failed", e),
-        )
-
-    status = agent.get_status()
-    session_manager.persist_agent(agent)
-
-    if ctx.chat_log_store and req.client_id:
-        try:
-            ctx.chat_log_store.save_turn(
-                client_id=req.client_id,
-                persona_id=req.persona_id,
-                user_msg=req.message,
-                agent_reply=result["reply"],
-                modality=result.get("modality", "文字"),
-            )
-        except Exception as e:
-            print(f"  [chat_log] save error: {e}")
-
-    return {
-        "session_id": session_id,
-        "response": result["reply"],
-        "modality": result["modality"],
-        "image_url": f"/api/selfie/{os.path.basename(result['image_path'])}" if result.get("image_path") else None,
-        **status,
-    }
+            detail=external_error_detail("Chat provider failed", e.original),
+        ) from e
+    return result.to_response()
 
 
 @router.get("/api/session/{session_id}/status")

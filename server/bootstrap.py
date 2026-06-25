@@ -23,6 +23,7 @@ from providers.api_config import get_llm_config, get_memory_config, get_tts_conf
 from providers.llm import LLMClient
 from providers.media.tts_engine import TTSEngine, TTSProvider
 from providers.memory.evermemos.evermemos_client import EverMemOSClient
+from server.chat_api_service import ChatApiService
 from server.context import AppContext
 from server.proactive_service import ProactiveService
 from server.session_manager import SessionManager
@@ -202,6 +203,10 @@ async def startup(context: AppContext) -> None:
         genome_data_dir=context.genome_data_dir,
         ttl_seconds=SESSION_TTL_SECONDS,
     )
+    context.chat_api_service = ChatApiService(
+        session_manager=context.session_manager,
+        chat_log_store=context.chat_log_store,
+    )
 
     context.persona_switch_service = WebSocketPersonaSwitchService(
         registry=context.ws_registry,
@@ -302,6 +307,7 @@ def sync_legacy_globals(context: AppContext, module_globals: dict[str, object]) 
             "evermemos": context.evermemos,
             "cron_scheduler": context.cron_scheduler,
             "session_manager": context.session_manager,
+            "chat_api_service": context.chat_api_service,
             "proactive_service": context.proactive_service,
             "ws_demo_command_service": context.ws_demo_command_service,
             "ws_chat_turn_service": context.ws_chat_turn_service,
