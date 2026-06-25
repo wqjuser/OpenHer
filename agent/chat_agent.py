@@ -49,6 +49,7 @@ from agent.task_skills import AgentTaskSkillMixin
 from agent.turn_state import AgentTurnStateMixin
 from agent.critic_context import AgentCriticContextMixin
 from agent.actor_messages import AgentActorMessagesMixin
+from agent.turn_pipeline import AgentTurnPipelineMixin
 from agent.drive_lifecycle import AgentDriveLifecycleMixin
 from agent.turn_finalization import AgentTurnFinalizationMixin
 from agent.evermemos_mixin import EverMemosMixin
@@ -68,6 +69,7 @@ class ChatAgent(
     AgentTurnStateMixin,
     AgentCriticContextMixin,
     AgentActorMessagesMixin,
+    AgentTurnPipelineMixin,
     AgentDriveLifecycleMixin,
     AgentTurnFinalizationMixin,
     EverMemosMixin,
@@ -241,35 +243,13 @@ class ChatAgent(
 
     async def _chat_inner(self, user_message: str, on_feel_done=None, is_proactive: bool = False) -> dict:
         """Inner chat implementation (called under lock)."""
-        # ── Step -1: Task skill ReAct loop (before persona engine) ──
-        user_message = await self._run_task_skills(user_message)
-
-        # ── Step 0: persona engine (zero changes below this line) ──
-        now = self._begin_turn()
-
-        # ── Step 0: EverMemOS session context (first turn only) ──
-        relationship_prior = await self._evermemos_gather()
-
-        # ── Step 1: Time metabolism ──
-        delta_h = self.metabolism.time_metabolism(now)
-
-        # ── Step 2-2.5: Critic perception + semi-emergent relationship update ──
-        context, frustration_delta, drive_satisfaction = await self._sense_critic_context(
-            user_message,
-            relationship_prior,
-        )
-
-        # ── Step 3: LLM metabolism → reward ──
-        reward = self.metabolism.apply_llm_delta(frustration_delta)
-        self.metabolism.sync_to_agent(self.agent)
-        self._last_reward = reward
-
-        # ── Step 3.5-4: Drive lifecycle update + crystallization gate ──
-        self._evolve_drive_baseline(frustration_delta)
-        self._crystallize_last_action_if_needed(reward, context, now)
-
-        # ── Step 5-8.5: Actor prompt and message preparation ──
-        single_messages = await self._prepare_actor_messages(user_message, context, now)
+        # ── Step -1-8.5: Shared pre-Actor turn lifecycle ──
+        prepared_turn = await self._prepare_turn_for_actor(user_message)
+        user_message = prepared_turn.user_message
+        context = prepared_turn.context
+        drive_satisfaction = prepared_turn.drive_satisfaction
+        reward = prepared_turn.reward
+        single_messages = prepared_turn.actor_messages
 
         # Notify caller that prompt is built (typing indicator can start)
         if on_feel_done:
@@ -318,33 +298,13 @@ class ChatAgent(
         """
         await self._turn_lock.acquire()
         try:
-            # ── Step -1: Task skill ReAct loop (before persona engine) ──
-            user_message = await self._run_task_skills(user_message)
-
-            # ── Step 0: persona engine (zero changes below this line) ──
-            now = self._begin_turn()
-
-            # ── Step 0: EverMemOS session context (first turn only) ──
-            relationship_prior = await self._evermemos_gather()
-
-            # ── Step 1: Metabolism ──
-            delta_h = self.metabolism.time_metabolism(now)
-            # ── Step 2-2.5: Critic perception + semi-emergent relationship update ──
-            context, frustration_delta, drive_satisfaction = await self._sense_critic_context(
-                user_message,
-                relationship_prior,
-            )
-
-            reward = self.metabolism.apply_llm_delta(frustration_delta)
-            self.metabolism.sync_to_agent(self.agent)
-            self._last_reward = reward
-
-            # ── Step 3.5-4: Drive lifecycle update + crystallization gate ──
-            self._evolve_drive_baseline(frustration_delta)
-            self._crystallize_last_action_if_needed(reward, context, now)
-
-            # ── Step 5-8.5: Actor prompt and message preparation ──
-            single_messages = await self._prepare_actor_messages(user_message, context, now)
+            # ── Step -1-8.5: Shared pre-Actor turn lifecycle ──
+            prepared_turn = await self._prepare_turn_for_actor(user_message)
+            user_message = prepared_turn.user_message
+            context = prepared_turn.context
+            drive_satisfaction = prepared_turn.drive_satisfaction
+            reward = prepared_turn.reward
+            single_messages = prepared_turn.actor_messages
 
             # Signal to stream consumer that prompt is ready → "typing" can start
             yield "__FEEL_DONE__"
