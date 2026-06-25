@@ -48,6 +48,7 @@ from agent.parser import extract_reply, _parse_modality, _SECTION_RE, _TAG_MAP
 from agent.prompt_builder import PromptBuilderMixin
 from agent.task_skills import AgentTaskSkillMixin
 from agent.turn_state import AgentTurnStateMixin
+from agent.drive_lifecycle import AgentDriveLifecycleMixin
 from agent.evermemos_mixin import EverMemosMixin
 from agent.relationship import AgentRelationshipMixin
 from agent.memory_injection import MemoryInjectionMixin
@@ -63,6 +64,7 @@ class ChatAgent(
     PromptBuilderMixin,
     AgentTaskSkillMixin,
     AgentTurnStateMixin,
+    AgentDriveLifecycleMixin,
     EverMemosMixin,
     AgentRelationshipMixin,
     MemoryInjectionMixin,
@@ -272,28 +274,9 @@ class ChatAgent(
         self.metabolism.sync_to_agent(self.agent)
         self._last_reward = reward
 
-        # ── Step 3.5: Critic-driven Drive baseline evolution ──
-        # Elastic baseline: spring force pulls baseline back toward persona origin.
-        # Prevents unbounded drift while preserving local emergence.
-        # frustration_delta > 0 = drive not satisfied this turn → baseline rises (hungers more)
-        # frustration_delta < 0 = drive satisfied this turn → baseline eases
-        for d in DRIVES:
-            shift = frustration_delta.get(d, 0.0) * self.baseline_lr
-            drift = self.agent.drive_baseline[d] - self._initial_baseline.get(d, 0.5)
-            pull_back = -drift * self.elasticity
-            self.agent.drive_baseline[d] = max(0.1, min(0.95,
-                self.agent.drive_baseline[d] + shift + pull_back
-            ))
-
-        # ── Step 4: Crystallization gate (last action) ──
-        if self._last_action and self._should_crystallize(reward, context):
-            self.style_memory.set_clock(now)
-            self.style_memory.crystallize(
-                self._last_action['context'],
-                self._last_action['monologue'],
-                self._last_action['reply'],
-                self._last_action['user_input'],
-            )
+        # ── Step 3.5-4: Drive lifecycle update + crystallization gate ──
+        self._evolve_drive_baseline(frustration_delta)
+        self._crystallize_last_action_if_needed(reward, context, now)
 
         # ── Step 5: Compute signals (context from Critic directly) ──
         base_signals = self.agent.compute_signals(context)
@@ -438,26 +421,9 @@ class ChatAgent(
             self.metabolism.sync_to_agent(self.agent)
             self._last_reward = reward
 
-            # ── Step 3.5: Critic-driven Drive baseline evolution ──
-            # Elastic baseline: spring force pulls baseline back toward persona origin.
-            # Prevents unbounded drift while preserving local emergence.
-            for d in DRIVES:
-                shift = frustration_delta.get(d, 0.0) * self.baseline_lr
-                drift = self.agent.drive_baseline[d] - self._initial_baseline.get(d, 0.5)
-                pull_back = -drift * self.elasticity
-                self.agent.drive_baseline[d] = max(0.1, min(0.95,
-                    self.agent.drive_baseline[d] + shift + pull_back
-                ))
-
-            # ── Step 4: Crystallization ──
-            if self._last_action and self._should_crystallize(reward, context):
-                self.style_memory.set_clock(now)
-                self.style_memory.crystallize(
-                    self._last_action['context'],
-                    self._last_action['monologue'],
-                    self._last_action['reply'],
-                    self._last_action['user_input'],
-                )
+            # ── Step 3.5-4: Drive lifecycle update + crystallization gate ──
+            self._evolve_drive_baseline(frustration_delta)
+            self._crystallize_last_action_if_needed(reward, context, now)
 
             # ── Steps 5-6: Signals + noise ──
             base_signals = self.agent.compute_signals(context)
