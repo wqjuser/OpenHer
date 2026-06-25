@@ -25,6 +25,7 @@ from providers.media.tts_engine import TTSEngine, TTSProvider
 from providers.memory.evermemos.evermemos_client import EverMemOSClient
 from server.chat_api_service import ChatApiService
 from server.context import AppContext
+from server.media_api_service import MediaApiService
 from server.proactive_service import ProactiveService
 from server.session_manager import SessionManager
 from server.websocket_chat import WebSocketChatTurnService
@@ -148,6 +149,10 @@ async def startup(context: AppContext) -> None:
             f"⚠ TTS provider '{tts_cfg['provider']}' 未配置 {missing_key}，"
             "已禁用语音技能和 WebSocket TTS"
         )
+    context.media_api_service = MediaApiService(
+        tts_engine=context.tts_engine,
+        image_cache_dir=base_dir / ".cache" / "image",
+    )
 
     tool_registry = ToolRegistry()
     register_photo_tools(tool_registry)
@@ -308,6 +313,7 @@ def sync_legacy_globals(context: AppContext, module_globals: dict[str, object]) 
             "cron_scheduler": context.cron_scheduler,
             "session_manager": context.session_manager,
             "chat_api_service": context.chat_api_service,
+            "media_api_service": context.media_api_service,
             "proactive_service": context.proactive_service,
             "ws_demo_command_service": context.ws_demo_command_service,
             "ws_chat_turn_service": context.ws_chat_turn_service,
