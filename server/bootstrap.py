@@ -26,6 +26,7 @@ from providers.memory.evermemos.evermemos_client import EverMemOSClient
 from server.chat_api_service import ChatApiService
 from server.context import AppContext
 from server.media_api_service import MediaApiService
+from server.persona_api_service import PersonaApiService
 from server.proactive_service import ProactiveService
 from server.session_manager import SessionManager
 from server.websocket_chat import WebSocketChatTurnService
@@ -121,6 +122,10 @@ async def startup(context: AppContext) -> None:
     context.persona_loader = PersonaLoader(str(base_dir / "persona" / "personas"))
     personas = context.persona_loader.load_all()
     print(f"✓ 加载了 {len(personas)} 个角色: {list(personas.keys())}")
+    context.persona_api_service = PersonaApiService(
+        persona_loader=context.persona_loader,
+        personas_dir=base_dir / "persona" / "personas",
+    )
 
     llm_cfg = get_llm_config()
     context.llm_client = LLMClient(
@@ -314,6 +319,7 @@ def sync_legacy_globals(context: AppContext, module_globals: dict[str, object]) 
             "session_manager": context.session_manager,
             "chat_api_service": context.chat_api_service,
             "media_api_service": context.media_api_service,
+            "persona_api_service": context.persona_api_service,
             "proactive_service": context.proactive_service,
             "ws_demo_command_service": context.ws_demo_command_service,
             "ws_chat_turn_service": context.ws_chat_turn_service,
