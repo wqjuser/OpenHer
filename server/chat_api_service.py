@@ -17,6 +17,10 @@ class ChatApiPersonaNotFound(ValueError):
     """Raised when the requested persona or session cannot be created."""
 
 
+class ChatApiSessionNotFound(ValueError):
+    """Raised when a REST session lookup misses."""
+
+
 class ChatApiProviderError(RuntimeError):
     """Raised when the underlying chat provider fails."""
 
@@ -86,6 +90,29 @@ class ChatApiService:
             image_url=self._image_url(result.get("image_path")),
             status=status,
         )
+
+    def session_status(self, session_id: str) -> dict[str, Any]:
+        if not self.session_manager:
+            raise ChatApiServiceUnavailable("Session manager is not initialized")
+        entry = self.session_manager.get_entry(session_id)
+        if not entry:
+            raise ChatApiSessionNotFound("Session not found")
+        agent, _ = entry
+        return agent.get_status()
+
+    def chat_history(
+        self,
+        *,
+        persona_id: str,
+        client_id: str,
+        limit: int,
+        before_id: int | None,
+    ) -> dict[str, Any]:
+        if not self.chat_log_store:
+            return {"messages": [], "total": 0}
+        messages = self.chat_log_store.load_messages(client_id, persona_id, limit, before_id)
+        total = self.chat_log_store.count_messages(client_id, persona_id)
+        return {"messages": messages, "total": total}
 
     def _save_chat_log(self, req: ChatRequest, result: dict[str, Any]) -> None:
         if not self.chat_log_store or not req.client_id:

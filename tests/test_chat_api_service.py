@@ -41,6 +41,7 @@ class FakeSessionManager:
     def __init__(self, agent: Any):
         self.agent = agent
         self.get_or_create_calls: list[tuple[Any, ...]] = []
+        self.get_entry_calls: list[str] = []
         self.persisted_agents: list[Any] = []
 
     def get_or_create(
@@ -56,13 +57,41 @@ class FakeSessionManager:
     def persist_agent(self, agent: Any) -> None:
         self.persisted_agents.append(agent)
 
+    def get_entry(self, session_id: str) -> tuple[Any, float] | None:
+        self.get_entry_calls.append(session_id)
+        if session_id == "session-1":
+            return self.agent, 123.0
+        return None
+
 
 class FakeChatLogStore:
     def __init__(self):
         self.saved_turns: list[dict[str, Any]] = []
+        self.loaded_messages: list[dict[str, Any]] = [{
+            "id": 42,
+            "role": "user",
+            "content": "hello",
+        }]
+        self.total = 1
+        self.load_calls: list[tuple[Any, ...]] = []
+        self.count_calls: list[tuple[Any, ...]] = []
 
     def save_turn(self, **kwargs: Any) -> None:
         self.saved_turns.append(kwargs)
+
+    def load_messages(
+        self,
+        client_id: str,
+        persona_id: str,
+        limit: int,
+        before_id: int | None = None,
+    ) -> list[dict[str, Any]]:
+        self.load_calls.append((client_id, persona_id, limit, before_id))
+        return self.loaded_messages
+
+    def count_messages(self, client_id: str, persona_id: str) -> int:
+        self.count_calls.append((client_id, persona_id))
+        return self.total
 
 
 async def test_chat_api_service_processes_turn_persists_agent_and_saves_display_log():
@@ -122,6 +151,62 @@ async def test_chat_api_service_wraps_provider_failure_without_persisting_agent(
     assert session_manager.persisted_agents == []
 
 
+def test_chat_api_service_reads_session_status_and_wraps_missing_session():
+    from server.chat_api_service import (
+        ChatApiService,
+        ChatApiServiceUnavailable,
+        ChatApiSessionNotFound,
+    )
+
+    agent = FakeAgent()
+    session_manager = FakeSessionManager(agent)
+    service = ChatApiService(session_manager=session_manager, chat_log_store=None)
+
+    assert service.session_status("session-1") == agent.status
+    assert session_manager.get_entry_calls == ["session-1"]
+
+    try:
+        service.session_status("missing-session")
+    except ChatApiSessionNotFound as exc:
+        assert "Session not found" in str(exc)
+    else:
+        raise AssertionError("expected ChatApiSessionNotFound")
+
+    unavailable_service = ChatApiService(session_manager=None, chat_log_store=None)
+    try:
+        unavailable_service.session_status("session-1")
+    except ChatApiServiceUnavailable as exc:
+        assert "Session manager is not initialized" in str(exc)
+    else:
+        raise AssertionError("expected ChatApiServiceUnavailable")
+
+
+def test_chat_api_service_reads_display_history_or_empty_fallback():
+    from server.chat_api_service import ChatApiService
+
+    store = FakeChatLogStore()
+    service = ChatApiService(session_manager=None, chat_log_store=store)
+
+    response = service.chat_history(
+        persona_id="luna",
+        client_id="client-1",
+        limit=25,
+        before_id=42,
+    )
+
+    assert response == {"messages": store.loaded_messages, "total": 1}
+    assert store.load_calls == [("client-1", "luna", 25, 42)]
+    assert store.count_calls == [("client-1", "luna")]
+
+    empty_service = ChatApiService(session_manager=None, chat_log_store=None)
+    assert empty_service.chat_history(
+        persona_id="luna",
+        client_id="client-1",
+        limit=25,
+        before_id=None,
+    ) == {"messages": [], "total": 0}
+
+
 def test_chat_route_delegates_post_chat_turn_to_service_boundary():
     source = (ROOT / "server/routes/chat.py").read_text(encoding="utf-8")
     chat_api_body = source.split("async def chat_api", 1)[1].split("@router.get", 1)[0]
@@ -136,6 +221,20 @@ def test_chat_route_delegates_post_chat_turn_to_service_boundary():
     assert "persist_agent(" not in chat_api_body
     assert "save_turn(" not in chat_api_body
     assert "os.path.basename" not in chat_api_body
+
+
+def test_chat_routes_delegate_session_status_and_history_to_service_boundary():
+    source = (ROOT / "server/routes/chat.py").read_text(encoding="utf-8")
+    session_body = source.split("async def session_status", 1)[1].split("@router.get", 1)[0]
+    history_body = source.split("async def get_chat_history", 1)[1]
+
+    assert "ChatApiSessionNotFound" in source
+    assert "service.session_status(session_id)" in session_body
+    assert "service.chat_history(" in history_body
+    assert "ctx.session_manager.get_entry" not in session_body
+    assert "agent.get_status()" not in session_body
+    assert "ctx.chat_log_store.load_messages" not in history_body
+    assert "ctx.chat_log_store.count_messages" not in history_body
 
 
 def test_app_context_and_bootstrap_expose_chat_api_service_boundary():
