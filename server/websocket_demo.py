@@ -12,6 +12,7 @@ import yaml
 from starlette.websockets import WebSocketDisconnect
 
 from agent.demo_controller import DemoController
+from server.proactive_ws_push import ProactivePushPayload, ProactiveWebSocketPushService
 
 
 SleepFunc = Callable[[float], Awaitable[Any]]
@@ -43,8 +44,12 @@ class WebSocketDemoCommandResult:
 class WebSocketDemoProactiveService:
     """Routes forced demo proactive messages through the full chat engine."""
 
-    def __init__(self, sleep: SleepFunc = asyncio.sleep) -> None:
-        self.sleep = sleep
+    def __init__(
+        self,
+        sleep: SleepFunc = asyncio.sleep,
+        push_service: Optional[ProactiveWebSocketPushService] = None,
+    ) -> None:
+        self.push_service = push_service or ProactiveWebSocketPushService(sleep=sleep)
 
     async def deliver_forced_proactive(
         self,
@@ -69,27 +74,16 @@ class WebSocketDemoProactiveService:
         segments = engine_result.get("segments")
         delays_ms = engine_result.get("delays_ms")
 
-        if segments and len(segments) > 1:
-            for i, segment in enumerate(segments):
-                if i > 0:
-                    await websocket.send_json({
-                        "type": "chat_start",
-                        "session_id": session_id,
-                    })
-                    delay = delays_ms[i] if delays_ms and i < len(delays_ms) else 300
-                    await self.sleep(max(delay, 300) / 1000.0)
-                await websocket.send_json({
-                    "type": "chat_end",
-                    "reply": segment,
-                    "modality": modality,
-                    "proactive": True,
-                })
-        else:
-            await websocket.send_json({
-                "type": "proactive",
-                "content": reply,
-                "modality": modality,
-            })
+        await self.push_service.push(
+            websocket,
+            session_id=session_id,
+            payload=ProactivePushPayload(
+                reply=reply,
+                modality=modality,
+                segments=segments,
+                delays_ms=delays_ms,
+            ),
+        )
 
         return reply
 
