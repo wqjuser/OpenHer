@@ -35,9 +35,8 @@ from typing import AsyncIterator, Optional
 
 from providers.llm.client import LLMClient, ChatMessage, ChatResponse
 from persona.loader import Persona
-from engine.genome.genome_engine import Agent, DRIVES, SIGNALS
-from engine.genome.drive_metabolism import DriveMetabolism, apply_thermodynamic_noise
-from engine.genome.critic import critic_sense
+from engine.genome.genome_engine import Agent
+from engine.genome.drive_metabolism import DriveMetabolism
 from engine.genome.style_memory import ContinuousStyleMemory
 from memory.memory_store import MemoryStore
 
@@ -48,6 +47,7 @@ from agent.parser import extract_reply, _parse_modality, _SECTION_RE, _TAG_MAP
 from agent.prompt_builder import PromptBuilderMixin
 from agent.task_skills import AgentTaskSkillMixin
 from agent.turn_state import AgentTurnStateMixin
+from agent.critic_context import AgentCriticContextMixin
 from agent.drive_lifecycle import AgentDriveLifecycleMixin
 from agent.turn_finalization import AgentTurnFinalizationMixin
 from agent.evermemos_mixin import EverMemosMixin
@@ -65,6 +65,7 @@ class ChatAgent(
     PromptBuilderMixin,
     AgentTaskSkillMixin,
     AgentTurnStateMixin,
+    AgentCriticContextMixin,
     AgentDriveLifecycleMixin,
     AgentTurnFinalizationMixin,
     EverMemosMixin,
@@ -250,26 +251,11 @@ class ChatAgent(
         # ── Step 1: Time metabolism ──
         delta_h = self.metabolism.time_metabolism(now)
 
-        # ── Step 2: Critic perception (8D context + 5D delta + 3D relationship) ──
-        frust_dict = {d: round(self.metabolism.frustration[d], 2) for d in DRIVES}
-        # Build persona hint for persona-aware Critic
-        _p = self.persona
-        _mbti = getattr(_p, 'mbti', '') or '未知'
-        _tags = '、'.join(getattr(_p, 'tags', [])[:3])
-        _persona_hint = f"{_p.name} ({_mbti}) — {_tags}" if _tags else f"{_p.name} ({_mbti})"
-        context, frustration_delta, rel_delta, drive_satisfaction = await critic_sense(
-            user_message, self.llm, frust_dict,
-            user_profile=self._user_profile,
-            episode_summary=self._episode_summary,
-            persona_hint=_persona_hint,
+        # ── Step 2-2.5: Critic perception + semi-emergent relationship update ──
+        context, frustration_delta, drive_satisfaction = await self._sense_critic_context(
+            user_message,
+            relationship_prior,
         )
-
-        # ── Step 2.5: Semi-emergent relationship update (prior + delta + clip + EMA) ──
-        relationship_4d = self._apply_relationship_ema(
-            relationship_prior, rel_delta, context.get('conversation_depth', 0.0)
-        )
-        context.update(relationship_4d)  # Merge 8D + 4D → 12D
-        self._last_critic = context  # Store full 12D context (after merge)
 
         # ── Step 3: LLM metabolism → reward ──
         reward = self.metabolism.apply_llm_delta(frustration_delta)
@@ -368,25 +354,11 @@ class ChatAgent(
 
             # ── Step 1: Metabolism ──
             delta_h = self.metabolism.time_metabolism(now)
-            # ── Step 2: Critic perception (8D context + 5D delta + 3D relationship) ──
-            frust_dict = {d: round(self.metabolism.frustration[d], 2) for d in DRIVES}
-            _p = self.persona
-            _mbti = getattr(_p, 'mbti', '') or '未知'
-            _tags = '、'.join(getattr(_p, 'tags', [])[:3])
-            _persona_hint = f"{_p.name} ({_mbti}) — {_tags}" if _tags else f"{_p.name} ({_mbti})"
-            context, frustration_delta, rel_delta, drive_satisfaction = await critic_sense(
-                user_message, self.llm, frust_dict,
-                user_profile=self._user_profile,
-                episode_summary=self._episode_summary,
-                persona_hint=_persona_hint,
+            # ── Step 2-2.5: Critic perception + semi-emergent relationship update ──
+            context, frustration_delta, drive_satisfaction = await self._sense_critic_context(
+                user_message,
+                relationship_prior,
             )
-
-            # ── Step 2.5: Semi-emergent relationship update ──
-            relationship_4d = self._apply_relationship_ema(
-                relationship_prior, rel_delta, context.get('conversation_depth', 0.0)
-            )
-            context.update(relationship_4d)
-            self._last_critic = context
 
             reward = self.metabolism.apply_llm_delta(frustration_delta)
             self.metabolism.sync_to_agent(self.agent)
