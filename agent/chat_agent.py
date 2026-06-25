@@ -49,6 +49,7 @@ from agent.prompt_builder import PromptBuilderMixin
 from agent.task_skills import AgentTaskSkillMixin
 from agent.turn_state import AgentTurnStateMixin
 from agent.drive_lifecycle import AgentDriveLifecycleMixin
+from agent.turn_finalization import AgentTurnFinalizationMixin
 from agent.evermemos_mixin import EverMemosMixin
 from agent.relationship import AgentRelationshipMixin
 from agent.memory_injection import MemoryInjectionMixin
@@ -65,6 +66,7 @@ class ChatAgent(
     AgentTaskSkillMixin,
     AgentTurnStateMixin,
     AgentDriveLifecycleMixin,
+    AgentTurnFinalizationMixin,
     EverMemosMixin,
     AgentRelationshipMixin,
     MemoryInjectionMixin,
@@ -328,47 +330,16 @@ class ChatAgent(
         clamped_reward = max(-1.0, min(1.0, reward))
         self.agent.step(context, reward=clamped_reward, drive_satisfaction=drive_satisfaction)
         self._last_drive_satisfaction = drive_satisfaction
-        # ── Update state ──
-        if not is_proactive:
-            self.history.append(ChatMessage(role="user", content=user_message))
-        if not getattr(self, '_fallback_history_added', False):
-            self.history.append(ChatMessage(role="assistant", content=reply))
-        self._fallback_history_added = False
-
-        if len(self.history) > self.max_history:
-            self.history = self.history[-self.max_history:]
-
-        self._last_action = {
-            'context': context,
-            'monologue': monologue,
-            'reply': reply,
-            'modality': modality,
-            'user_input': user_message,
-        }
-        self._last_modality = modality
-
-        # Store facts in keyword memory (skip for proactive — not real user input)
-        if self.memory_store and not is_proactive:
-            self.memory_store.add(
-                user_id=self.user_id,
-                persona_id=self.persona.persona_id,
-                content=user_message,
-                category="user_message",
-                importance=context.get('entropy', 0.5),
-            )
-
-        sat_str = ' '.join(f'{d[:3]}={v:.2f}' for d, v in drive_satisfaction.items() if v > 0)
-        print(f"  [genome] reward={reward:.2f} temp={self.metabolism.temperature():.3f} modality={modality[:30]}")
-        print(f"  [feel] monologue={monologue[:60]}")
-        print(f"  [drive_sat] {sat_str or 'none'}")
-
-        # ── Step 11: EverMemOS store_turn (non-blocking background task) ──
-        if not is_proactive:
-            self._evermemos_store_bg(user_message, reply)
-
-        # ── Step 12: Fire async search for NEXT turn's injection ──
-        if not is_proactive:
-            self._evermemos_search_bg(user_message)
+        self._finalize_turn_response(
+            user_message,
+            reply,
+            monologue,
+            modality,
+            context,
+            drive_satisfaction,
+            reward,
+            is_proactive=is_proactive,
+        )
 
         result = {'reply': reply, 'modality': modality}
         for key in ('image_path', 'audio_path', 'segments', 'delays_ms'):
@@ -473,34 +444,15 @@ class ChatAgent(
             clamped_reward = max(-1.0, min(1.0, reward))
             self.agent.step(context, reward=clamped_reward, drive_satisfaction=drive_satisfaction)
             self._last_drive_satisfaction = drive_satisfaction
-            # Update history
-            self.history.append(ChatMessage(role="user", content=user_message))
-            if not getattr(self, '_fallback_history_added', False):
-                self.history.append(ChatMessage(role="assistant", content=reply))
-            self._fallback_history_added = False
-
-            if len(self.history) > self.max_history:
-                self.history = self.history[-self.max_history:]
-
-            self._last_action = {
-                'context': context,
-                'monologue': monologue,
-                'reply': reply,
-                'modality': modality,
-                'user_input': user_message,
-            }
-            self._last_modality = modality
-
-            sat_str = ' '.join(f'{d[:3]}={v:.2f}' for d, v in drive_satisfaction.items() if v > 0)
-            print(f"  [genome] reward={reward:.2f} temp={self.metabolism.temperature():.3f} modality={modality[:30]}")
-            print(f"  [feel] monologue={monologue[:60]}")
-            print(f"  [drive_sat] {sat_str or 'none'}")
-
-            # ── Step 11: EverMemOS store_turn ──
-            self._evermemos_store_bg(user_message, reply)
-
-            # ── Step 12: Fire async search for NEXT turn ──
-            self._evermemos_search_bg(user_message)
+            self._finalize_turn_response(
+                user_message,
+                reply,
+                monologue,
+                modality,
+                context,
+                drive_satisfaction,
+                reward,
+            )
         finally:
             self._turn_lock.release()
 
