@@ -17,8 +17,11 @@ router = APIRouter()
 @router.post("/api/chat")
 async def chat_api(req: ChatRequest, request: Request):
     ctx = context_from_request(request)
+    if not ctx.session_manager:
+        raise HTTPException(status_code=503, detail="Session manager is not initialized")
+    session_manager = ctx.session_manager
     try:
-        session_id, agent = ctx.session_manager.get_or_create(
+        session_id, agent = session_manager.get_or_create(
             req.session_id, req.persona_id, req.user_name, req.client_id
         )
     except ValueError as e:
@@ -34,7 +37,7 @@ async def chat_api(req: ChatRequest, request: Request):
         )
 
     status = agent.get_status()
-    ctx.session_manager.persist_agent(agent)
+    session_manager.persist_agent(agent)
 
     if ctx.chat_log_store and req.client_id:
         try:

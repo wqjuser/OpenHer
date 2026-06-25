@@ -22,6 +22,8 @@ PERSONAS_DIR = BASE_DIR / "persona" / "personas"
 @router.get("/api/personas")
 async def list_personas(request: Request):
     ctx = context_from_request(request)
+    if not ctx.persona_loader:
+        raise HTTPException(status_code=503, detail="Persona loader is not initialized")
     personas = ctx.persona_loader.load_all()
     result = []
     for pid, p in personas.items():
