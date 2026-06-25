@@ -47,6 +47,7 @@ from agent.parser import extract_reply, _parse_modality, _SECTION_RE, _TAG_MAP
 # Mixin modules (extracted from this file)
 from agent.prompt_builder import PromptBuilderMixin
 from agent.evermemos_mixin import EverMemosMixin
+from agent.relationship import AgentRelationshipMixin
 from agent.memory_injection import MemoryInjectionMixin
 from agent.status import AgentStatusMixin
 from agent.modality_execution import ModalityExecutionMixin
@@ -59,6 +60,7 @@ from agent.proactive import ProactiveMixin
 class ChatAgent(
     PromptBuilderMixin,
     EverMemosMixin,
+    AgentRelationshipMixin,
     MemoryInjectionMixin,
     AgentStatusMixin,
     ModalityExecutionMixin,
