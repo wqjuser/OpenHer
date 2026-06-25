@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -10,8 +9,15 @@ from fastapi.responses import FileResponse
 
 from engine.path_security import safe_child_path
 from server.context import context_from_request
-from server.errors import external_error_detail, redact_known_secrets
-from server.media import audio_format_for_path, media_type_for_file
+from server.errors import external_error_detail
+from server.media import media_type_for_file
+from server.media_api_service import (
+    MediaApiFailedResult,
+    MediaApiProviderConfigError,
+    MediaApiProviderError,
+    MediaApiService,
+    MediaApiServiceUnavailable,
+)
 
 
 router = APIRouter()
@@ -28,36 +34,31 @@ async def tts_api(
     if not text:
         raise HTTPException(status_code=400, detail="Text is required")
     ctx = context_from_request(request)
-    if not ctx.tts_engine:
-        raise HTTPException(status_code=503, detail="TTS engine is not initialized")
+    service = ctx.media_api_service or MediaApiService(
+        tts_engine=ctx.tts_engine,
+        image_cache_dir=BASE_DIR / ".cache" / "image",
+    )
     try:
-        result = await ctx.tts_engine.synthesize(
+        result = await service.synthesize_tts(
             text=text,
-            voice_preset=voice,
-            emotion_instruction=emotion or None,
+            voice=voice,
+            emotion=emotion,
         )
-    except Exception as e:
-        print(f"  [tts_api] provider error: {type(e).__name__}: {str(e)[:200]}")
+    except MediaApiServiceUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except MediaApiProviderError as e:
         raise HTTPException(
             status_code=502,
-            detail=external_error_detail("TTS provider failed", e),
-        )
-
-    if result.success and result.audio_path:
-        audio_format = result.audio_format or audio_format_for_path(result.audio_path)
-        return FileResponse(
-            result.audio_path,
-            media_type=result.mime_type or "application/octet-stream",
-            filename=f"speech.{audio_format}",
-        )
-    raise HTTPException(
-        status_code=502,
-        detail=redact_known_secrets(result.error or "TTS provider failed"),
-    )
+            detail=external_error_detail(e.action, e.original),
+        ) from e
+    except MediaApiFailedResult as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    return FileResponse(result.path, media_type=result.media_type, filename=result.filename)
 
 
 @router.post("/api/image")
 async def image_api(
+    request: Request,
     prompt: str = Query(..., description="Text prompt for image generation"),
     aspect_ratio: str = Query("", description="Aspect ratio (e.g. 16:9, 1:1)"),
     image_size: str = Query("1K", description="Image size (1K, 2K)"),
@@ -66,38 +67,27 @@ async def image_api(
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt is required")
 
-    from providers.registry import get_image_gen
-
+    ctx = context_from_request(request)
+    service = ctx.media_api_service or MediaApiService(
+        tts_engine=ctx.tts_engine,
+        image_cache_dir=BASE_DIR / ".cache" / "image",
+    )
     try:
-        provider = get_image_gen(cache_dir=str(BASE_DIR / ".cache" / "image"))
-    except ValueError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    try:
-        result = await provider.generate(
+        result = await service.generate_image(
             prompt=prompt,
             aspect_ratio=aspect_ratio,
             image_size=image_size,
         )
-    except Exception as e:
-        print(f"  [image_api] provider error: {type(e).__name__}: {str(e)[:200]}")
+    except MediaApiProviderConfigError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    except MediaApiProviderError as e:
         raise HTTPException(
             status_code=502,
-            detail=external_error_detail("Image provider failed", e),
-        )
-
-    if result.success and result.image_path:
-        media_type = result.mime_type or "image/png"
-        ext = os.path.splitext(result.image_path)[1] or ".png"
-        return FileResponse(
-            result.image_path,
-            media_type=media_type,
-            filename=f"generated{ext}",
-        )
-    raise HTTPException(
-        status_code=502,
-        detail=redact_known_secrets(result.error or "Image generation failed"),
-    )
+            detail=external_error_detail(e.action, e.original),
+        ) from e
+    except MediaApiFailedResult as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+    return FileResponse(result.path, media_type=result.media_type, filename=result.filename)
 
 
 @router.get("/api/selfie/{filename:path}")
