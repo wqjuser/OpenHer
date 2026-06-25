@@ -46,6 +46,7 @@ from agent.parser import extract_reply, _parse_modality, _SECTION_RE, _TAG_MAP
 
 # Mixin modules (extracted from this file)
 from agent.prompt_builder import PromptBuilderMixin
+from agent.task_skills import AgentTaskSkillMixin
 from agent.evermemos_mixin import EverMemosMixin
 from agent.relationship import AgentRelationshipMixin
 from agent.memory_injection import MemoryInjectionMixin
@@ -59,6 +60,7 @@ from agent.proactive import ProactiveMixin
 
 class ChatAgent(
     PromptBuilderMixin,
+    AgentTaskSkillMixin,
     EverMemosMixin,
     AgentRelationshipMixin,
     MemoryInjectionMixin,
@@ -227,26 +229,6 @@ class ChatAgent(
         """
         async with self._turn_lock:
             return await self._chat_inner(user_message, on_feel_done=on_feel_done, is_proactive=is_proactive)
-
-    async def _run_task_skills(self, user_message: str) -> str:
-        """Step -1: Run task skill ReAct loop before persona engine.
-
-        Returns user_message (unchanged or enriched with observations).
-        """
-        if not self.task_skill_engine:
-            return user_message
-        try:
-            observations = await self.task_skill_engine.react_loop(user_message, self.llm)
-            if observations:
-                user_message = (
-                    f"{user_message}\n\n"
-                    f"[以下是真实查询数据，回复中必须自然融入关键数值，不要省略]\n"
-                    f"{observations}"
-                )
-                print(f"  [skill] ✅ 数据已注入 ({len(observations)} chars), 继续引擎处理")
-        except Exception as e:
-            print(f"  [skill] ⚠ ReAct loop failed ({e}), fallback to persona engine")
-        return user_message
 
     async def _chat_inner(self, user_message: str, on_feel_done=None, is_proactive: bool = False) -> dict:
         """Inner chat implementation (called under lock)."""
@@ -422,24 +404,6 @@ class ChatAgent(
 
     # _express_wrap removed — SKILL results now injected into user_message
     # and processed through the full persona engine (Single-Pass Actor).
-
-    def _log_task(self, skill_id: str, user_input: str, output: dict, reply: str) -> None:
-        """Log task execution to task.db (isolated from persona memory)."""
-        if not self.task_log_store:
-            return
-        try:
-            self.task_log_store.log_execution(
-                persona_id=self.persona.persona_id,
-                skill_id=skill_id,
-                user_input=user_input,
-                command=output.get("command", ""),
-                stdout=output.get("stdout", ""),
-                stderr=output.get("stderr", ""),
-                success=output.get("success", False),
-                reply=reply,
-            )
-        except Exception as e:
-            print(f"  [task_log] save error: {e}")
 
     async def chat_stream(self, user_message: str) -> AsyncIterator[str]:
         """
