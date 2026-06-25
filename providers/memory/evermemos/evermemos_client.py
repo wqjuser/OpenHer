@@ -27,158 +27,19 @@ import math
 import os
 import time
 import uuid
-from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING, Optional
-
-try:
-    import yaml
-except ImportError:
-    yaml = None
 
 try:
     import httpx
 except ImportError:
     httpx = None
 
+from providers.memory.evermemos.circuit_breaker import _CircuitBreaker, _NoOpBreaker
+from providers.memory.evermemos.config import _CFG, _fmt_latency, _load_memory_config
+from providers.memory.evermemos.types import SessionContext
+
 if TYPE_CHECKING:
     import httpx as httpx_types
-
-
-# ─────────────────────────────────────────────────────────────
-# Config Loader
-# ─────────────────────────────────────────────────────────────
-
-def _load_memory_config() -> dict:
-    """Load config/memory_config.yaml; fall back to safe defaults.
-    ENV override: OPENHER_MEMORY__<KEY>=value overrides any key.
-    Example: OPENHER_MEMORY__RETRIEVE_METHOD=agentic
-    """
-    defaults = {
-        "enabled": True,
-        "base_url": "http://localhost:1995/api/v1",
-        "retrieve_method": "rrf",
-        "agentic_rollout_pct": 0,
-        "search_timeout_sec": 3.0,
-        "load_timeout_sec": 5.0,
-        "foresight_max_items": 3,
-        "foresight_max_chars": 200,   # P2b: per-item char budget
-        "profile_max_items": 5,
-        "facts_max_items": 5,
-        "episodes_max_items": 3,
-        "circuit_breaker_enabled": True,
-        "failure_threshold": 5,
-        "recovery_timeout_sec": 60,
-        "log_hit_rates": True,
-        "log_latency": True,
-    }
-    config_path = Path(__file__).parent / "memory_config.yaml"
-    if yaml is not None and config_path.exists():
-        try:
-            data = yaml.safe_load(config_path.read_text()) or {}
-            cfg = data.get("evermemos", data)
-            merged = {**defaults, **cfg}
-        except Exception as e:
-            print(f"  [evermemos] config load error: {e} — using defaults")
-            merged = dict(defaults)
-    else:
-        merged = dict(defaults)
-
-    # P2a: OPENHER_MEMORY__<KEY> env overrides (case-insensitive key)
-    prefix = "OPENHER_MEMORY__"
-    for env_key, env_val in os.environ.items():
-        if env_key.upper().startswith(prefix):
-            cfg_key = env_key[len(prefix):].lower()
-            if cfg_key in merged:
-                # Coerce type from existing default
-                orig = merged[cfg_key]
-                try:
-                    if isinstance(orig, bool):
-                        merged[cfg_key] = env_val.lower() in ("1", "true", "yes")
-                    elif isinstance(orig, int):
-                        merged[cfg_key] = int(env_val)
-                    elif isinstance(orig, float):
-                        merged[cfg_key] = float(env_val)
-                    else:
-                        merged[cfg_key] = env_val
-                except ValueError:
-                    pass  # Keep original on parse error
-
-    return merged
-
-_CFG = _load_memory_config()
-
-
-# ─────────────────────────────────────────────────────────────
-# Data Classes
-# ─────────────────────────────────────────────────────────────
-
-@dataclass
-class SessionContext:
-    """
-    Per-session context pulled from EverMemOS at session start.
-    Cached locally to avoid repeated API calls within the same session.
-    """
-    user_profile: str          # Human-readable profile text for Critic/Actor injection
-    episode_summary: str       # Narrative episodes for "history recall" injection
-    foresight_text: str        # P1: Foresight prediction text for Actor injection
-    interaction_count: int     # Total past interactions with this user
-    has_history: bool          # True if user has any stored memories
-    relationship_depth: float  # 0~1, semantic richness-based (not pure count)
-    pending_foresight: float   # 0~1, whether there are active foresight memories
-    # Metrics
-    _fact_count: int = field(default=0, repr=False)
-    _profile_count: int = field(default=0, repr=False)
-    _episode_count: int = field(default=0, repr=False)
-    _foresight_count: int = field(default=0, repr=False)
-
-
-# ─────────────────────────────────────────────────────────────
-# Circuit Breaker
-# ─────────────────────────────────────────────────────────────
-
-class _CircuitBreaker:
-    """Simple consecutive-failure circuit breaker."""
-
-    def __init__(self, threshold: int = 5, recovery_sec: float = 60.0):
-        self._threshold = threshold
-        self._recovery_sec = recovery_sec
-        self._failures = 0
-        self._open_at: Optional[float] = None
-
-    @property
-    def is_open(self) -> bool:
-        if self._open_at is None:
-            return False
-        if time.monotonic() - self._open_at > self._recovery_sec:
-            self._open_at = None
-            self._failures = 0
-            print("  [evermemos] 🔄 circuit breaker reset (recovery timeout)")
-            return False
-        return True
-
-    def record_success(self):
-        self._failures = 0
-
-    def record_failure(self):
-        self._failures += 1
-        if self._failures >= self._threshold and self._open_at is None:
-            self._open_at = time.monotonic()
-            print(f"  [evermemos] ⚡ circuit OPEN after {self._failures} failures")
-
-
-class _NoOpBreaker:
-    """No-op breaker for when circuit_breaker_enabled=false."""
-    is_open = False
-    def record_success(self): pass
-    def record_failure(self): pass
-
-
-def _fmt_latency(elapsed_ms: float) -> str:
-    """Format latency string, respecting log_latency config flag."""
-    if _CFG.get("log_latency", True):
-        return f" ({elapsed_ms:.0f}ms)"
-    return ""
 
 
 # ─────────────────────────────────────────────────────────────
