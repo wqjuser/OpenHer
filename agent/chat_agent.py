@@ -40,9 +40,6 @@ from engine.genome.drive_metabolism import DriveMetabolism
 from engine.genome.style_memory import ContinuousStyleMemory
 from memory.memory_store import MemoryStore
 
-# Parser utilities (extracted to agent/parser.py)
-from agent.parser import extract_reply, _parse_modality, _SECTION_RE, _TAG_MAP
-
 # Mixin modules (extracted from this file)
 from agent.prompt_builder import PromptBuilderMixin
 from agent.task_skills import AgentTaskSkillMixin
@@ -57,6 +54,7 @@ from agent.relationship import AgentRelationshipMixin
 from agent.memory_injection import MemoryInjectionMixin
 from agent.status import AgentStatusMixin
 from agent.modality_execution import ModalityExecutionMixin
+from agent.response_runtime import AgentResponseRuntimeMixin
 from agent.modality_retry import ModalityRetryMixin
 from agent.proactive import ProactiveMixin
 
@@ -77,6 +75,7 @@ class ChatAgent(
     MemoryInjectionMixin,
     AgentStatusMixin,
     ModalityExecutionMixin,
+    AgentResponseRuntimeMixin,
     ModalityRetryMixin,
     ProactiveMixin,
 ):
@@ -256,36 +255,22 @@ class ChatAgent(
             await on_feel_done()
 
         single_response = await self.llm.chat(single_messages)
-        monologue, reply, modality = extract_reply(single_response.content)
-
-        # ── Step 9b: Modality skill execution ──
-        modality_result = await self._execute_modality_skills(
-            single_response.content,
-            reply,
-            modality,
-        )
-        reply = modality_result.reply
-        modality = modality_result.modality
-
-        # ── Step 10: Hebbian learning ──
-        clamped_reward = max(-1.0, min(1.0, reward))
-        self.agent.step(context, reward=clamped_reward, drive_satisfaction=drive_satisfaction)
-        self._last_drive_satisfaction = drive_satisfaction
-        self._finalize_turn_response(
+        completed_response = await self._complete_actor_response(
             user_message,
-            reply,
-            monologue,
-            modality,
+            single_response.content,
             context,
             drive_satisfaction,
             reward,
             is_proactive=is_proactive,
         )
 
-        result = {'reply': reply, 'modality': modality}
+        result = {
+            "reply": completed_response.reply,
+            "modality": completed_response.modality,
+        }
         for key in ('image_path', 'audio_path', 'segments', 'delays_ms'):
-            if modality_result.outputs.get(key):
-                result[key] = modality_result.outputs[key]
+            if completed_response.outputs.get(key):
+                result[key] = completed_response.outputs[key]
         return result
 
     # _express_wrap removed — SKILL results now injected into user_message
@@ -316,22 +301,9 @@ class ChatAgent(
 
             # ── Post-stream processing ──
             raw_text = "".join(full_response)
-            monologue, reply, modality = extract_reply(raw_text)
-
-            # ── Modality — let LLM output be the authority ──
-            modality_result = await self._execute_modality_skills(raw_text, reply, modality)
-            reply = modality_result.reply
-            modality = modality_result.modality
-
-            # Step 10: Hebbian learning
-            clamped_reward = max(-1.0, min(1.0, reward))
-            self.agent.step(context, reward=clamped_reward, drive_satisfaction=drive_satisfaction)
-            self._last_drive_satisfaction = drive_satisfaction
-            self._finalize_turn_response(
+            await self._complete_actor_response(
                 user_message,
-                reply,
-                monologue,
-                modality,
+                raw_text,
                 context,
                 drive_satisfaction,
                 reward,
