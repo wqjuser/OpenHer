@@ -26,6 +26,7 @@ from server.websocket_chat import WebSocketChatTurnService
 from server.websocket_demo import WebSocketDemoCommandService, WebSocketDemoProactiveService
 from server.websocket_persona_switch import WebSocketPersonaSwitchService
 from server.websocket_registry import WebSocketConnectionRegistry
+from server.websocket_route_service import WebSocketRouteService
 from server.ws_tts import WebSocketTTSService
 
 
@@ -89,6 +90,7 @@ class AppContext:
         default_factory=WebSocketDemoProactiveService
     )
     ws_demo_command_service: WebSocketDemoCommandService | None = None
+    ws_route_service: WebSocketRouteService | None = None
     ws_chat_turn_service: WebSocketChatTurnService | None = None
     persona_switch_service: WebSocketPersonaSwitchService | None = None
     ws_tts_service: WebSocketTTSService | None = None
