@@ -32,6 +32,7 @@ from server.session_manager import SessionManager
 from server.websocket_chat import WebSocketChatTurnService
 from server.websocket_demo import WebSocketDemoCommandService
 from server.websocket_persona_switch import WebSocketPersonaSwitchService
+from server.websocket_route_service import WebSocketRouteService
 from server.ws_tts import WebSocketTTSService
 
 
@@ -239,6 +240,14 @@ async def startup(context: AppContext) -> None:
         presets_file=str(base_dir / "demo" / "presets" / "showcase.yaml"),
         proactive_delivery=context.ws_demo_proactive_service,
     )
+    context.ws_route_service = WebSocketRouteService(
+        registry=context.ws_registry,
+        session_manager=context.session_manager,
+        chat_turn_service=context.ws_chat_turn_service,
+        tts_service=context.ws_tts_service,
+        persona_switch_service=context.persona_switch_service,
+        demo_command_service=context.ws_demo_command_service,
+    )
 
     if cron_skills:
         context.cron_scheduler = CronScheduler()
@@ -322,6 +331,7 @@ def sync_legacy_globals(context: AppContext, module_globals: dict[str, object]) 
             "persona_api_service": context.persona_api_service,
             "proactive_service": context.proactive_service,
             "ws_demo_command_service": context.ws_demo_command_service,
+            "ws_route_service": context.ws_route_service,
             "ws_chat_turn_service": context.ws_chat_turn_service,
             "persona_switch_service": context.persona_switch_service,
             "ws_tts_service": context.ws_tts_service,
