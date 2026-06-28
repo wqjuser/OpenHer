@@ -106,7 +106,7 @@ git merge --no-ff codex/ci-quality-gates -m "merge: ci quality gates"
 
 Expected: `main` contains the CI quality gate merge commit.
 
-- [ ] **Step 5: Push main**
+- [x] **Step 5: Push main**
 
 Run:
 ```bash
