@@ -20,6 +20,7 @@ from typing import Optional
 
 from engine.genome.genome_engine import Agent
 from engine.genome.drive_metabolism import DriveMetabolism
+from engine.state_migrations import apply_state_schema_migrations
 
 
 class StateStore:
@@ -41,64 +42,7 @@ class StateStore:
         print(f"✓ 状态存储: {db_path}")
 
     def _create_tables(self):
-        self._conn.executescript("""
-            CREATE TABLE IF NOT EXISTS genome_state (
-                user_id TEXT NOT NULL,
-                persona_id TEXT NOT NULL,
-                agent_data TEXT DEFAULT '{}',
-                metabolism_data TEXT DEFAULT '{}',
-                state_version INTEGER DEFAULT 0,
-                last_active_at REAL DEFAULT 0,
-                interaction_cadence REAL DEFAULT 0,
-                updated_at REAL DEFAULT 0,
-                PRIMARY KEY (user_id, persona_id)
-            );
-
-            CREATE TABLE IF NOT EXISTS chat_summary (
-                user_id TEXT NOT NULL,
-                persona_id TEXT NOT NULL,
-                summary TEXT DEFAULT '',
-                message_count INTEGER DEFAULT 0,
-                updated_at REAL DEFAULT 0,
-                PRIMARY KEY (user_id, persona_id)
-            );
-
-            CREATE TABLE IF NOT EXISTS proactive_lock (
-                user_id TEXT NOT NULL,
-                persona_id TEXT NOT NULL,
-                owner_id TEXT NOT NULL,
-                acquired_at REAL NOT NULL,
-                expires_at REAL NOT NULL,
-                PRIMARY KEY (user_id, persona_id)
-            );
-
-            CREATE TABLE IF NOT EXISTS proactive_outbox (
-                user_id TEXT NOT NULL,
-                persona_id TEXT NOT NULL,
-                tick_id TEXT NOT NULL,
-                reply TEXT NOT NULL,
-                modality TEXT NOT NULL DEFAULT '文字',
-                monologue TEXT DEFAULT '',
-                drive_id TEXT DEFAULT '',
-                dedup_key TEXT DEFAULT '',
-                created_at REAL NOT NULL,
-                status TEXT DEFAULT 'pending',
-                delivered_at REAL,
-                PRIMARY KEY (user_id, persona_id, tick_id)
-            );
-        """)
-        # Migrate: add columns if missing (for existing DBs)
-        for col, typ, default in [
-            ("state_version", "INTEGER", "0"),
-            ("last_active_at", "REAL", "0"),
-            ("interaction_cadence", "REAL", "0"),
-        ]:
-            try:
-                self._conn.execute(
-                    f"ALTER TABLE genome_state ADD COLUMN {col} {typ} DEFAULT {default}")
-            except sqlite3.OperationalError:
-                pass
-        self._conn.commit()
+        apply_state_schema_migrations(self._conn)
 
     # ─────────────────────────────────────────────
     # Session state (original + CAS)
