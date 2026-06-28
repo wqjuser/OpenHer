@@ -23,6 +23,7 @@ from server import bootstrap
 from server.context import AppContext
 from server.media import audio_format_for_path as _audio_format_for_path
 from server.media import media_type_for_file as _media_type_for_file
+from server.observability import add_request_observability
 from server.security import cors_origins_from_env as _cors_origins_from_env
 from server.security import request_has_api_token as _request_has_api_token
 from server.routes import register_routes
@@ -79,6 +80,7 @@ def create_app(context: Optional[AppContext] = None) -> FastAPI:
         allow_headers=["*"],
     )
     server_app.middleware("http")(require_api_token)
+    server_app.middleware("http")(add_request_observability)
     register_routes(server_app)
     return server_app
 
