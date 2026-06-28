@@ -28,6 +28,7 @@ from server.context import AppContext
 from server.media_api_service import MediaApiService
 from server.persona_api_service import PersonaApiService
 from server.proactive_service import ProactiveService
+from server.session_agent_factory import SessionAgentFactory
 from server.session_manager import SessionManager
 from server.websocket_chat import WebSocketChatTurnService
 from server.websocket_demo import WebSocketDemoCommandService
@@ -203,7 +204,7 @@ async def startup(context: AppContext) -> None:
         context.evermemos = None
         print("ℹ EverMemOS: 未配置或已禁用，使用本地 MemoryStore")
 
-    context.session_manager = SessionManager(
+    context.session_agent_factory = SessionAgentFactory(
         persona_loader=context.persona_loader,
         llm_client=context.llm_client,
         task_skill_engine=context.task_skill_engine,
@@ -212,6 +213,11 @@ async def startup(context: AppContext) -> None:
         state_store=context.state_store,
         evermemos=context.evermemos,
         genome_data_dir=context.genome_data_dir,
+    )
+    context.session_manager = SessionManager(
+        agent_factory=context.session_agent_factory,
+        state_store=context.state_store,
+        evermemos=context.evermemos,
         ttl_seconds=SESSION_TTL_SECONDS,
     )
     context.chat_api_service = ChatApiService(
@@ -325,6 +331,7 @@ def sync_legacy_globals(context: AppContext, module_globals: dict[str, object]) 
             "memory_store": context.memory_store,
             "evermemos": context.evermemos,
             "cron_scheduler": context.cron_scheduler,
+            "session_agent_factory": context.session_agent_factory,
             "session_manager": context.session_manager,
             "chat_api_service": context.chat_api_service,
             "media_api_service": context.media_api_service,

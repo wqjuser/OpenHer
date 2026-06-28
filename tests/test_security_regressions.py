@@ -140,6 +140,7 @@ class ChatHistoryContractTests(unittest.TestCase):
 
 class SessionManagerRegressionTests(unittest.TestCase):
     def test_session_manager_reuses_session_by_persona_and_client_id(self):
+        from server.session_agent_factory import SessionAgentFactory
         from server.session_manager import SessionManager
 
         class Persona:
@@ -159,19 +160,24 @@ class SessionManagerRegressionTests(unittest.TestCase):
             def pre_warm(self):
                 self.pre_warm_count += 1
 
-        with patch("server.session_manager.ChatAgent", FakeAgent):
-            manager = SessionManager(
-                persona_loader=cast(Any, PersonaLoader()),
-                llm_client=cast(Any, None),
-                task_skill_engine=cast(Any, None),
-                modality_skill_engine=cast(Any, None),
-                memory_store=cast(Any, None),
-                state_store=None,
-                evermemos=None,
-                genome_data_dir="/tmp/openher-test",
-            )
-            first_sid, first_agent = manager.get_or_create(None, "luna", None, "client-1")
-            second_sid, second_agent = manager.get_or_create(None, "luna", None, "client-1")
+        agent_factory = SessionAgentFactory(
+            persona_loader=cast(Any, PersonaLoader()),
+            llm_client=cast(Any, None),
+            task_skill_engine=cast(Any, None),
+            modality_skill_engine=cast(Any, None),
+            memory_store=cast(Any, None),
+            state_store=None,
+            evermemos=None,
+            genome_data_dir="/tmp/openher-test",
+            agent_factory=FakeAgent,
+        )
+        manager = SessionManager(
+            agent_factory=agent_factory,
+            state_store=None,
+            evermemos=None,
+        )
+        first_sid, first_agent = manager.get_or_create(None, "luna", None, "client-1")
+        second_sid, second_agent = manager.get_or_create(None, "luna", None, "client-1")
 
         fake_first_agent = cast(Any, first_agent)
         self.assertEqual(first_sid, second_sid)

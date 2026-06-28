@@ -21,6 +21,7 @@ from server.demo_inject import DemoInjectService
 from server.media_api_service import MediaApiService
 from server.persona_api_service import PersonaApiService
 from server.proactive_service import ProactiveService
+from server.session_agent_factory import SessionAgentFactory
 from server.session_manager import SessionManager
 from server.websocket_chat import WebSocketChatTurnService
 from server.websocket_demo import WebSocketDemoCommandService, WebSocketDemoProactiveService
@@ -78,6 +79,7 @@ class AppContext:
     memory_store: MemoryStore | None = None
     evermemos: EverMemOSClient | None = None
     cron_scheduler: CronScheduler | None = None
+    session_agent_factory: SessionAgentFactory | None = None
     session_manager: SessionManagerService | None = None
     chat_api_service: ChatApiService | None = None
     media_api_service: MediaApiService | None = None
