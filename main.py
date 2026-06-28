@@ -101,6 +101,7 @@ chat_log_store: object | None = None
 memory_store: object | None = None
 evermemos: object | None = None
 cron_scheduler: object | None = None
+session_agent_factory: object | None = None
 session_manager: object | None = None
 proactive_service: object | None = None
 ws_registry = openher_context.ws_registry
