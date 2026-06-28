@@ -299,6 +299,14 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
+**开发质量检查：**
+
+```bash
+make install        # 安装运行时依赖和开发检查工具
+make check          # pyright + compileall + pytest + whitespace check
+make desktop-build  # 构建 macOS Swift Package
+```
+
 ### 二、配置环境变量
 
 ```bash
