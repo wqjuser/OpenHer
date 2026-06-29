@@ -14,6 +14,8 @@ import tempfile
 import time
 from typing import Optional
 
+from providers.config import get_tts_config
+
 # ─────────────────────────────────────────────────────────────
 # Re-export public types (facade 兼容契约)
 # ─────────────────────────────────────────────────────────────
@@ -49,44 +51,61 @@ class TTSEngine:
 
     def __init__(
         self,
-        provider: TTSProvider = TTSProvider.DASHSCOPE,
+        provider: TTSProvider | str | None = None,
         cache_dir: Optional[str] = None,
         openai_api_key: Optional[str] = None,
         dashscope_api_key: Optional[str] = None,
         minimax_api_key: Optional[str] = None,
-        minimax_model: str = "speech-2.8-turbo",
+        minimax_model: Optional[str] = None,
     ):
-        self.provider = provider
-        self.cache_dir = cache_dir or os.path.join(tempfile.gettempdir(), "openher_tts")
+        requested_provider = self._provider_name(provider) if provider is not None else None
+        active_cfg = get_tts_config(requested_provider)
+        provider_name = str(active_cfg["provider"])
+
+        self.provider = TTSProvider(provider_name)
+        self.cache_dir = cache_dir or str(
+            active_cfg.get("cache_dir") or os.path.join(tempfile.gettempdir(), "openher_tts")
+        )
         os.makedirs(self.cache_dir, exist_ok=True)
 
-        # Store per-provider API keys for provider-override calls
-        self._api_keys = {
-            "openai": openai_api_key or os.getenv("OPENAI_API_KEY", ""),
-            "dashscope": dashscope_api_key or os.getenv("DASHSCOPE_API_KEY", ""),
-            "minimax": minimax_api_key or os.getenv("MINIMAX_API_KEY", ""),
+        # Explicit constructor keys remain compatibility overrides; config resolves defaults.
+        self._api_key_overrides = {
+            "openai": openai_api_key,
+            "dashscope": dashscope_api_key,
+            "minimax": minimax_api_key,
         }
-        self._minimax_model = minimax_model
+        self._minimax_model_override = minimax_model
+        self._provider_configs = {provider_name: active_cfg}
 
         # Lazy-loaded provider instances (one per provider name)
         self._providers: dict[str, BaseTTSProvider] = {}
 
         print(f"✓ TTS 引擎: {self.provider.value}, 缓存: {self.cache_dir}")
 
+    @staticmethod
+    def _provider_name(provider: TTSProvider | str) -> str:
+        return provider.value if isinstance(provider, TTSProvider) else str(provider)
+
     def _get_provider(self, provider_name: str) -> BaseTTSProvider:
         """Get or create provider instance for given name."""
         if provider_name not in self._providers:
             from providers.registry import get_tts
 
+            provider_cfg = self._provider_configs.get(provider_name)
+            if provider_cfg is None:
+                provider_cfg = get_tts_config(provider_name)
+                self._provider_configs[provider_name] = provider_cfg
             kwargs = {
                 "provider": provider_name,
                 "cache_dir": self.cache_dir,
             }
-            api_key = self._api_keys.get(provider_name, "")
+            api_key = self._api_key_overrides.get(provider_name) or provider_cfg.get("active_api_key") or ""
             if api_key:
                 kwargs["api_key"] = api_key
             if provider_name == "minimax":
-                kwargs["minimax_model"] = self._minimax_model
+                minimax_model = self._minimax_model_override or provider_cfg.get("minimax_model")
+                if minimax_model:
+                    kwargs["minimax_model"] = minimax_model
 
             self._providers[provider_name] = get_tts(**kwargs)
 
@@ -115,7 +134,7 @@ class TTSEngine:
             provider: Override the default provider for this call
         """
         actual_provider = provider or self.provider
-        provider_name = actual_provider.value
+        provider_name = self._provider_name(actual_provider)
         start_time = time.time()
 
         try:
