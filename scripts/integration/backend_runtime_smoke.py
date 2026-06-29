@@ -32,10 +32,16 @@ def find_free_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def start_server(port: int) -> tuple[subprocess.Popen[str], TextIO]:
+def start_server(
+    port: int,
+    *,
+    env_overrides: dict[str, str] | None = None,
+) -> tuple[subprocess.Popen[str], TextIO]:
     log_file = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    if env_overrides:
+        env.update(env_overrides)
     process = subprocess.Popen(
         [
             sys.executable,
@@ -186,26 +192,30 @@ def run_smoke(timeout: float) -> list[tuple[str, dict[str, str]]]:
     token = os.getenv("OPENHER_API_TOKEN", "").strip()
     port = find_free_port()
     base_url = f"http://127.0.0.1:{port}"
-    process, log_file = start_server(port)
-    try:
-        status_body = wait_for_status(
-            base_url=base_url,
-            process=process,
-            log_file=log_file,
-            token=token,
-            timeout=timeout,
+    with tempfile.TemporaryDirectory(prefix="openher-runtime-smoke-") as data_dir:
+        process, log_file = start_server(
+            port,
+            env_overrides={"OPENHER_DATA_DIR": data_dir},
         )
-        status = check_live_status(status_body)
-        persona_id, personas = check_live_personas(base_url, token)
-        history = check_live_history(base_url, token, persona_id)
-        return [
-            ("runtime_status", {"port": str(port), **status}),
-            ("runtime_personas", personas),
-            ("runtime_history", history),
-        ]
-    finally:
-        stop_server(process)
-        log_file.close()
+        try:
+            status_body = wait_for_status(
+                base_url=base_url,
+                process=process,
+                log_file=log_file,
+                token=token,
+                timeout=timeout,
+            )
+            status = check_live_status(status_body)
+            persona_id, personas = check_live_personas(base_url, token)
+            history = check_live_history(base_url, token, persona_id)
+            return [
+                ("runtime_status", {"port": str(port), **status}),
+                ("runtime_personas", personas),
+                ("runtime_history", history),
+            ]
+        finally:
+            stop_server(process)
+            log_file.close()
 
 
 def main() -> int:

@@ -346,6 +346,12 @@ TTS_API_KEY=your_current_tts_api_key_here
 IMAGE_API_KEY=your_current_image_api_key_here
 ```
 
+运行数据默认写入项目根目录的 `.data`。如果你需要让某次启动、CI 或烟测使用独立的 SQLite / genome 状态，可以设置：
+
+```bash
+OPENHER_DATA_DIR=/absolute/path/to/openher-data
+```
+
 ### 三、启动后端
 
 ```bash

@@ -33,6 +33,14 @@ def test_backend_websocket_smoke_exposes_live_ws_checks():
     assert "redact_known_secrets" in source
 
 
+def test_backend_websocket_smoke_uses_temporary_data_dir():
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert "TemporaryDirectory" in source
+    assert "OPENHER_DATA_DIR" in source
+    assert "env_overrides" in source
+
+
 def test_websocket_url_converts_http_base_and_encodes_token():
     smoke = load_websocket_smoke_module()
 

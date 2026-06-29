@@ -40,6 +40,14 @@ def test_backend_runtime_smoke_exposes_live_process_checks():
     assert "redact_known_secrets" in source
 
 
+def test_backend_runtime_smoke_uses_temporary_data_dir():
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert "TemporaryDirectory" in source
+    assert "OPENHER_DATA_DIR" in source
+    assert "env_overrides" in source
+
+
 def test_find_free_port_returns_bindable_local_port():
     smoke = load_runtime_smoke_module()
 

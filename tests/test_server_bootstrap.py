@@ -16,6 +16,57 @@ def test_bootstrap_module_exports_runtime_hooks():
     assert hasattr(bootstrap, "sync_legacy_globals")
 
 
+def test_runtime_data_dir_defaults_to_repo_data_dir(monkeypatch, tmp_path):
+    import server.bootstrap as bootstrap
+
+    monkeypatch.delenv("OPENHER_DATA_DIR", raising=False)
+
+    assert bootstrap._runtime_data_dir(tmp_path) == tmp_path / ".data"
+
+
+def test_runtime_data_dir_accepts_absolute_override(monkeypatch, tmp_path):
+    import server.bootstrap as bootstrap
+
+    data_dir = tmp_path / "isolated"
+    monkeypatch.setenv("OPENHER_DATA_DIR", str(data_dir))
+
+    assert bootstrap._runtime_data_dir(tmp_path) == data_dir
+
+
+def test_runtime_data_dir_resolves_relative_override_against_repo(monkeypatch, tmp_path):
+    import server.bootstrap as bootstrap
+
+    monkeypatch.setenv("OPENHER_DATA_DIR", ".runtime-smoke")
+
+    assert bootstrap._runtime_data_dir(tmp_path) == tmp_path / ".runtime-smoke"
+
+
+def test_runtime_path_remaps_default_data_paths_to_runtime_dir(tmp_path):
+    import server.bootstrap as bootstrap
+
+    assert (
+        bootstrap._runtime_path(tmp_path, tmp_path / "runtime", ".data/memory.db")
+        == tmp_path / "runtime" / "memory.db"
+    )
+
+
+def test_runtime_path_preserves_absolute_paths(tmp_path):
+    import server.bootstrap as bootstrap
+
+    absolute_path = tmp_path / "external" / "memory.db"
+
+    assert bootstrap._runtime_path(tmp_path, tmp_path / "runtime", str(absolute_path)) == absolute_path
+
+
+def test_runtime_path_resolves_custom_relative_paths_against_repo(tmp_path):
+    import server.bootstrap as bootstrap
+
+    assert (
+        bootstrap._runtime_path(tmp_path, tmp_path / "runtime", "var/memory.db")
+        == tmp_path / "var" / "memory.db"
+    )
+
+
 def test_main_delegates_lifespan_to_bootstrap_module():
     main_source = (ROOT / "main.py").read_text(encoding="utf-8")
 

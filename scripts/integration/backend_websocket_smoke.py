@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import sys
+import tempfile
 import urllib.parse
 from pathlib import Path
 from typing import Any
@@ -64,24 +65,28 @@ async def run_smoke(timeout: float) -> list[tuple[str, dict[str, str]]]:
     token = os.getenv("OPENHER_API_TOKEN", "").strip()
     port = backend_runtime_smoke.find_free_port()
     base_url = f"http://127.0.0.1:{port}"
-    process, log_file = backend_runtime_smoke.start_server(port)
-    try:
-        status_body = backend_runtime_smoke.wait_for_status(
-            base_url=base_url,
-            process=process,
-            log_file=log_file,
-            token=token,
-            timeout=timeout,
+    with tempfile.TemporaryDirectory(prefix="openher-websocket-smoke-") as data_dir:
+        process, log_file = backend_runtime_smoke.start_server(
+            port,
+            env_overrides={"OPENHER_DATA_DIR": data_dir},
         )
-        status = backend_runtime_smoke.check_live_status(status_body)
-        events = await check_websocket_errors(websocket_url(base_url, token))
-        return [
-            ("websocket_runtime", {"status": "ok", "port": str(port), **status}),
-            *events,
-        ]
-    finally:
-        backend_runtime_smoke.stop_server(process)
-        log_file.close()
+        try:
+            status_body = backend_runtime_smoke.wait_for_status(
+                base_url=base_url,
+                process=process,
+                log_file=log_file,
+                token=token,
+                timeout=timeout,
+            )
+            status = backend_runtime_smoke.check_live_status(status_body)
+            events = await check_websocket_errors(websocket_url(base_url, token))
+            return [
+                ("websocket_runtime", {"status": "ok", "port": str(port), **status}),
+                *events,
+            ]
+        finally:
+            backend_runtime_smoke.stop_server(process)
+            log_file.close()
 
 
 def main() -> int:

@@ -46,6 +46,26 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def _runtime_data_dir(base_dir: Path) -> Path:
+    configured = os.getenv("OPENHER_DATA_DIR", "").strip()
+    if not configured:
+        return base_dir / ".data"
+
+    data_dir = Path(configured).expanduser()
+    if not data_dir.is_absolute():
+        data_dir = base_dir / data_dir
+    return data_dir
+
+
+def _runtime_path(base_dir: Path, data_dir: Path, configured_path: str) -> Path:
+    path = Path(configured_path).expanduser()
+    if path.is_absolute():
+        return path
+    if path.parts and path.parts[0] == ".data":
+        return data_dir.joinpath(*path.parts[1:])
+    return base_dir / path
+
+
 def _get_or_create_session(
     context: AppContext,
     session_id: Optional[str],
@@ -186,7 +206,7 @@ async def startup(context: AppContext) -> None:
     cron_skills = context.task_skill_engine.get_cron_skills()
     print(f"✓ 加载了 {len(task_loaded)}+{len(modality_loaded)} 个技能 (task+modality), {len(cron_skills)} 个定时任务")
 
-    data_dir = base_dir / ".data"
+    data_dir = _runtime_data_dir(base_dir)
     context.genome_data_dir = str(data_dir / "genome")
     os.makedirs(context.genome_data_dir, exist_ok=True)
 
@@ -196,7 +216,7 @@ async def startup(context: AppContext) -> None:
     from providers.config import get_memory_provider_config
 
     mem_prov_cfg = get_memory_provider_config()
-    soulmem_db = base_dir / mem_prov_cfg["soulmem"]["db_path"]
+    soulmem_db = _runtime_path(base_dir, data_dir, mem_prov_cfg["soulmem"]["db_path"])
     os.makedirs(os.path.dirname(str(soulmem_db)) or ".", exist_ok=True)
     context.memory_store = MemoryStore(str(soulmem_db))
 
