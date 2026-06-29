@@ -16,6 +16,8 @@ final class AppState: ObservableObject {
     @Published var appPhase: AppPhase = .loading
     // MARK: - Connection
     @Published var isConnected: Bool = false
+    @Published var isChatAvailable: Bool = true
+    @Published var chatUnavailableReason: String? = nil
     @Published var serverURL: String = "http://localhost:8000"
     @Published var apiToken: String = ""
 
@@ -83,6 +85,10 @@ final class AppState: ObservableObject {
 
     var selectedPersona: Persona? {
         personas.first { $0.personaId == selectedPersonaId }
+    }
+
+    var canSendChat: Bool {
+        isConnected && isChatAvailable
     }
 
     // MARK: - Init
@@ -300,8 +306,19 @@ final class AppState: ObservableObject {
         }
     }
 
+    func updateBackendStatus(_ status: BackendStatus) {
+        isConnected = status.isRunning
+        guard let llm = status.providers?.llm else {
+            isChatAvailable = true
+            chatUnavailableReason = nil
+            return
+        }
+        isChatAvailable = llm.available
+        chatUnavailableReason = llm.available ? nil : llm.displayUnavailableReason
+    }
+
     func sendMessage(_ text: String) {
-        guard selectedPersonaId != nil, !text.isEmpty else { return }
+        guard selectedPersonaId != nil, !text.isEmpty, canSendChat else { return }
 
         // Add user message immediately (UI responsiveness)
         let userMsg = ChatMessage(

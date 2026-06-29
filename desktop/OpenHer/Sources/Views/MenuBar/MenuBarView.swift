@@ -9,11 +9,18 @@ struct MenuBarView: View {
             // Connection status
             HStack(spacing: 6) {
                 Circle()
-                    .fill(appState.isConnected ? Paper.coral : Paper.faint)
+                    .fill(appState.canSendChat ? Paper.coral : Paper.faint)
                     .frame(width: 6, height: 6)
-                Text(appState.isConnected ? L10n.str("已连接", en: "Connected") : L10n.str("未连接", en: "Disconnected"))
-                    .font(Paper.freqFont)
-                    .foregroundStyle(Paper.herText)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(connectionLabel)
+                        .font(Paper.freqFont)
+                        .foregroundStyle(Paper.herText)
+                    if appState.isConnected, let reason = appState.chatUnavailableReason {
+                        Text(reason)
+                            .font(Paper.tinyFont)
+                            .foregroundStyle(Paper.faint)
+                    }
+                }
             }
 
             Divider()
@@ -82,5 +89,15 @@ struct MenuBarView: View {
         }
         .padding(16)
         .frame(width: 200)
+    }
+
+    private var connectionLabel: String {
+        if !appState.isConnected {
+            return L10n.str("未连接", en: "Disconnected")
+        }
+        if !appState.canSendChat {
+            return L10n.str("聊天不可用", en: "Chat unavailable")
+        }
+        return L10n.str("已连接", en: "Connected")
     }
 }

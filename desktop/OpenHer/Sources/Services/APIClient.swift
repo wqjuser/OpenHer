@@ -51,10 +51,13 @@ actor APIClient {
 
     // MARK: - Status
 
-    func checkStatus() async throws -> Bool {
+    func fetchBackendStatus() async throws -> BackendStatus {
         let data = try await get("/api/status")
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        return json?["status"] as? String == "running"
+        return try JSONDecoder().decode(BackendStatus.self, from: data)
+    }
+
+    func checkStatus() async throws -> Bool {
+        try await fetchBackendStatus().isRunning
     }
 
     // MARK: - Avatar
@@ -96,6 +99,41 @@ actor APIClient {
 
 private struct PersonasResponse: Codable {
     let personas: [Persona]
+}
+
+struct BackendStatus: Decodable {
+    let status: String
+    let providers: BackendProviders?
+
+    var isRunning: Bool {
+        status == "running"
+    }
+}
+
+struct BackendProviders: Decodable {
+    let llm: ProviderCapability?
+    let tts: ProviderCapability?
+    let image: ProviderCapability?
+}
+
+struct ProviderCapability: Decodable {
+    let provider: String
+    let available: Bool
+    let missingKeyEnv: String
+
+    var displayUnavailableReason: String {
+        let keyHint = missingKeyEnv.isEmpty ? "" : " (\(missingKeyEnv))"
+        return L10n.str(
+            "聊天服务暂不可用，请先配置 LLM provider key\(keyHint)",
+            en: "Chat is unavailable. Configure the LLM provider key first\(keyHint)"
+        )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case provider
+        case available
+        case missingKeyEnv = "missing_key_env"
+    }
 }
 
 enum APIError: Error, LocalizedError {
