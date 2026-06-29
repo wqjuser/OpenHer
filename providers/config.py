@@ -219,16 +219,41 @@ def get_memory_provider_config() -> dict:
     }
 
 
-def get_image_provider_config() -> dict:
-    """Resolve image generation provider configuration."""
+def get_image_config(provider: Optional[str] = None) -> dict:
+    """Resolve image generation provider configuration including API keys."""
     cfg = _load()
     image = cfg.get("image", {})
+    providers = image.get("providers", {})
+    provider_name = (
+        provider
+        or image.get("provider")
+        or image.get("active_provider")
+        or "gemini"
+    )
+    api_keys = {}
+    for name, provider_cfg in providers.items():
+        env_var = provider_cfg.get("api_key_env", "")
+        api_keys[name] = os.getenv(env_var, "") if env_var else ""
+
+    active_preset = providers.get(provider_name, {})
+    active_api_key = api_keys.get(provider_name, "")
+
     return {
-        "active_provider": (
-            image.get("provider")
-            or image.get("active_provider")
-            or "gemini"
-        ),
+        "provider": provider_name,
         "cache_dir": image.get("cache_dir", ".cache/image"),
-        "providers": image.get("providers", {}),
+        "api_keys": api_keys,
+        "active_api_key": active_api_key,
+        "model": active_preset.get("model", ""),
+        "providers": providers,
+        "active_provider_config": active_preset,
+    }
+
+
+def get_image_provider_config() -> dict:
+    """Compatibility shape for image generation provider configuration."""
+    resolved = get_image_config()
+    return {
+        "active_provider": resolved["provider"],
+        "cache_dir": resolved["cache_dir"],
+        "providers": resolved["providers"],
     }

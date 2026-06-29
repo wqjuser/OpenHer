@@ -41,6 +41,20 @@ class _FakeTTSProvider:
         self.kwargs = kwargs
 
 
+class _FakeImageProvider:
+    def __init__(
+        self,
+        cache_dir,
+        api_key=None,
+        model=None,
+        **kwargs,
+    ):
+        self.cache_dir = cache_dir
+        self.api_key = api_key
+        self.model = model
+        self.kwargs = kwargs
+
+
 class ProviderConfigBoundaryTests(unittest.TestCase):
     def _reload_configs(self):
         api_config = importlib.import_module("providers.api_config")
@@ -173,6 +187,56 @@ class ProviderConfigBoundaryTests(unittest.TestCase):
 
         self.assertEqual(provider.api_key, "openai-tts-key")
         self.assertNotEqual(provider.api_key, "dash-key")
+
+    def test_registry_reuses_central_image_config_resolution(self):
+        from providers import config as provider_config
+        from providers import registry
+
+        central_cfg = {
+            "provider": "gemini",
+            "cache_dir": "/tmp/openher-central-image",
+            "api_keys": {"gemini": "central-gemini-key"},
+            "active_api_key": "central-gemini-key",
+            "model": "central-image-model",
+            "providers": {},
+            "active_provider_config": {"model": "central-image-model"},
+        }
+
+        with patch.dict(
+            os.environ,
+            {
+                "GEMINI_API_KEY": "env-gemini-key",
+            },
+            clear=True,
+        ):
+            provider_config.reload()
+            with patch.dict(registry._IMAGE_PROVIDERS, {"gemini": _FakeImageProvider}, clear=True):
+                with patch("providers.registry.get_image_config", return_value=central_cfg, create=True) as get_config:
+                    provider = cast(Any, registry.get_image_gen())
+
+        self.assertEqual(get_config.call_count, 1)
+        self.assertEqual(provider.cache_dir, "/tmp/openher-central-image")
+        self.assertEqual(provider.api_key, "central-gemini-key")
+        self.assertEqual(provider.model, "central-image-model")
+        self.assertNotEqual(provider.api_key, "env-gemini-key")
+
+    def test_image_registry_provider_override_resolves_that_provider_config(self):
+        from providers import config as provider_config
+        from providers import registry
+
+        with patch.dict(
+            os.environ,
+            {
+                "GEMINI_API_KEY": "gemini-image-key",
+            },
+            clear=True,
+        ):
+            provider_config.reload()
+            with patch.dict(registry._IMAGE_PROVIDERS, {"gemini": _FakeImageProvider}, clear=True):
+                provider = cast(Any, registry.get_image_gen(provider="gemini"))
+
+        self.assertEqual(provider.api_key, "gemini-image-key")
+        self.assertEqual(provider.model, "gemini-3.1-flash-image-preview")
 
     def test_memory_config_single_source_enables_cloud_when_only_api_key_is_set(self):
         with patch.dict(os.environ, {"EVERMEMOS_API_KEY": "cloud-key"}, clear=True):
