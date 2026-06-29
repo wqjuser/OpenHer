@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from .config import get_llm_provider_config, get_tts_provider_config
+from .config import get_llm_config, get_tts_provider_config
 from .image.base import BaseImageProvider
 from .llm.base import BaseLLMProvider
 from .speech.tts.base import BaseTTSProvider
@@ -25,22 +25,6 @@ from .speech.tts.base import BaseTTSProvider
 
 # Map: provider name → class
 _LLM_PROVIDERS: dict[str, type[BaseLLMProvider]] = {}
-
-
-def _provider_env_prefix(provider: str) -> str:
-    """Convert provider id to an env-safe prefix."""
-    return "".join(ch if ch.isalnum() else "_" for ch in provider.upper())
-
-
-def _first_env(*names: str) -> str:
-    """Return the first non-empty environment value from the provided names."""
-    for name in names:
-        if not name:
-            continue
-        value = os.getenv(name, "")
-        if value:
-            return value
-    return ""
 
 
 def _register_llm_providers():
@@ -86,7 +70,7 @@ def get_llm(
     This is the primary factory — LLMClient facade delegates here.
 
     Args:
-        provider:    Provider name (dashscope/openai/moonshot/ollama/gemini).
+        provider:    Provider name (dashscope/openai/moonshot/ollama/gemini/deepseek).
                      Default: config active_provider.
         model:       Model name. Default: config model.
         api_key:     API key. Default: resolved from env var.
@@ -99,9 +83,9 @@ def get_llm(
     """
     _register_llm_providers()
 
-    cfg = get_llm_provider_config()
+    cfg = get_llm_config(provider)
 
-    provider_name = provider or cfg["active_provider"]
+    provider_name = cfg["provider"]
     provider_cls = _LLM_PROVIDERS.get(provider_name)
 
     if provider_cls is None:
@@ -110,26 +94,11 @@ def get_llm(
             f"Available: {list(_LLM_PROVIDERS.keys())}"
         )
 
-    # Resolve from provider presets in config
-    preset = cfg["providers"].get(provider_name, {})
-
-    resolved_model = model or cfg.get("model") or preset.get("default_model")
+    resolved_model = model or cfg.get("model")
     resolved_temp = temperature if temperature is not None else cfg.get("temperature", 0.92)
     resolved_max = max_tokens if max_tokens is not None else cfg.get("max_tokens", 1024)
-    provider_prefix = _provider_env_prefix(provider_name)
-
-    # API key: explicit > env var from preset > provider convention > global fallback
-    resolved_key = api_key
-    if not resolved_key:
-        key_env = preset.get("api_key_env", "")
-        resolved_key = _first_env(key_env, f"{provider_prefix}_API_KEY", "LLM_API_KEY")
-
-    # Base URL: explicit > provider convention > global fallback > env var from preset > preset
-    resolved_url = base_url
-    if not resolved_url:
-        base_url_env = preset.get("base_url_env", "")
-        resolved_url = _first_env(f"{provider_prefix}_BASE_URL", "LLM_BASE_URL", base_url_env)
-    resolved_url = resolved_url or preset.get("base_url")
+    resolved_key = api_key or cfg.get("api_key") or None
+    resolved_url = base_url or cfg.get("base_url") or None
 
     return provider_cls(
         model=resolved_model,
