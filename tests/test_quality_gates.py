@@ -83,7 +83,16 @@ def test_makefile_exposes_local_quality_gate_targets():
 
     text = makefile_path.read_text(encoding="utf-8")
 
-    for target in ("install", "test", "typecheck", "compile", "check", "desktop-build"):
+    for target in (
+        "install",
+        "test",
+        "typecheck",
+        "compile",
+        "check",
+        "integration-smoke",
+        "backend-acceptance-smoke",
+        "desktop-build",
+    ):
         assert f"{target}:" in text
 
     assert "PYTHON ?= .venv/bin/python" in text
@@ -91,3 +100,5 @@ def test_makefile_exposes_local_quality_gate_targets():
     assert "$(PYTHON) -m pyright" in text
     assert "$(PYTHON) -m compileall agent engine memory persona providers server skills tests main.py wechat_adapter.py" in text
     assert "swift build" in text
+    assert "$(PYTHON) -m py_compile scripts/integration/backend_acceptance_smoke.py" in text
+    assert "$(PYTHON) scripts/integration/backend_acceptance_smoke.py" in text
