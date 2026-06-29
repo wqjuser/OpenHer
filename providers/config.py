@@ -78,19 +78,20 @@ def reload():
     return _load()
 
 
-def get_llm_config() -> dict:
+def get_llm_config(provider: Optional[str] = None) -> dict:
     """Resolve LLM configuration including provider-specific env overrides."""
     cfg = _load()
     llm = cfg.get("llm", {})
-    provider = (
-        os.getenv("DEFAULT_PROVIDER")
+    provider_name = (
+        provider
+        or os.getenv("DEFAULT_PROVIDER")
         or llm.get("provider")
         or llm.get("active_provider")
         or "claude"
     )
     providers = llm.get("providers", {})
-    preset = providers.get(provider, {})
-    provider_prefix = _provider_env_prefix(provider)
+    preset = providers.get(provider_name, {})
+    provider_prefix = _provider_env_prefix(provider_name)
 
     api_key_env = preset.get("api_key_env", "")
     api_key = _first_env(api_key_env, f"{provider_prefix}_API_KEY", "LLM_API_KEY")
@@ -105,11 +106,11 @@ def get_llm_config() -> dict:
         os.getenv("DEFAULT_MODEL")
         or llm.get("model")
         or preset.get("default_model")
-        or _PROVIDER_DEFAULT_MODELS.get(provider, "qwen-max")
+        or _PROVIDER_DEFAULT_MODELS.get(provider_name, "qwen-max")
     )
 
     return {
-        "provider": provider,
+        "provider": provider_name,
         "model": model,
         "api_key": api_key,
         "base_url": base_url,
