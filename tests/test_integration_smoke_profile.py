@@ -74,3 +74,7 @@ def test_makefile_and_readme_document_integration_smoke() -> None:
     assert "IMAGE_API_KEY" in readme
     assert "TTS_API_KEY" in env_example
     assert "IMAGE_API_KEY" in env_example
+    assert "MEMORY_API_KEY" in readme
+    assert "MEMORY_BASE_URL" in readme
+    assert "MEMORY_API_KEY" in env_example
+    assert "MEMORY_BASE_URL" in env_example
