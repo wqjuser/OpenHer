@@ -39,6 +39,52 @@ def _providers_status(ctx) -> dict:
     }
 
 
+def _missing_key_reason(label: str, missing_key_env: str) -> str:
+    if missing_key_env:
+        return f"{label} provider is not configured (missing {missing_key_env})"
+    return f"{label} provider is not configured"
+
+
+def _feature_status(available: bool, reason: str, requires: list[str]) -> dict:
+    return {
+        "available": available,
+        "reason": "" if available else reason,
+        "requires": requires,
+    }
+
+
+def _provider_feature_status(provider: dict, label: str, requires: list[str]) -> dict:
+    available = bool(provider.get("available", False))
+    return _feature_status(
+        available=available,
+        reason=_missing_key_reason(label, str(provider.get("missing_key_env") or "")),
+        requires=requires,
+    )
+
+
+def _memory_unavailable_reason(memory: dict) -> str:
+    if not memory.get("enabled", False):
+        return "EverMemOS is disabled"
+    if not memory.get("configured", False):
+        return "EverMemOS is not configured"
+    return "EverMemOS is not available"
+
+
+def _capabilities_status(providers: dict) -> dict:
+    memory = providers["memory"]
+    memory_available = bool(memory.get("available", False))
+    return {
+        "chat": _provider_feature_status(providers["llm"], "LLM", ["llm"]),
+        "voice": _provider_feature_status(providers["tts"], "TTS", ["tts"]),
+        "image": _provider_feature_status(providers["image"], "Image", ["image"]),
+        "memory": _feature_status(
+            available=memory_available,
+            reason=_memory_unavailable_reason(memory),
+            requires=["memory"],
+        ),
+    }
+
+
 @router.get("/api/proactive/metrics")
 async def proactive_metrics(request: Request):
     """Proactive messaging observability: rates and counters."""
@@ -51,6 +97,7 @@ async def proactive_metrics(request: Request):
 @router.get("/api/status")
 async def api_status(request: Request):
     ctx = context_from_request(request)
+    providers = _providers_status(ctx)
     return {
         "name": "OpenHer",
         "version": "0.5.0",
@@ -58,5 +105,6 @@ async def api_status(request: Request):
         "status": "running",
         "personas": ctx.persona_loader.list_ids() if ctx.persona_loader else [],
         "active_sessions": ctx.session_manager.active_count if ctx.session_manager else 0,
-        "providers": _providers_status(ctx),
+        "providers": providers,
+        "capabilities": _capabilities_status(providers),
     }

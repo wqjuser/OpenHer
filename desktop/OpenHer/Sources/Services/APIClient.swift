@@ -104,6 +104,7 @@ private struct PersonasResponse: Codable {
 struct BackendStatus: Decodable {
     let status: String
     let providers: BackendProviders?
+    let capabilities: BackendCapabilities?
 
     var isRunning: Bool {
         status == "running"
@@ -114,6 +115,21 @@ struct BackendProviders: Decodable {
     let llm: ProviderCapability?
     let tts: ProviderCapability?
     let image: ProviderCapability?
+}
+
+struct BackendCapabilities: Decodable {
+    let chat: CapabilitySummary?
+}
+
+struct CapabilitySummary: Decodable {
+    let available: Bool
+    let reason: String
+
+    var displayUnavailableReason: String {
+        reason.isEmpty
+            ? L10n.str("聊天服务暂不可用", en: "Chat is unavailable")
+            : reason
+    }
 }
 
 struct ProviderCapability: Decodable {

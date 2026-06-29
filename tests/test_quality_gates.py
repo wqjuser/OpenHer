@@ -86,7 +86,8 @@ def test_makefile_exposes_local_quality_gate_targets():
     for target in ("install", "test", "typecheck", "compile", "check", "desktop-build"):
         assert f"{target}:" in text
 
-    assert "python -m pytest tests/ -q" in text
-    assert "python -m pyright" in text
-    assert "python -m compileall agent engine memory persona providers server skills tests main.py wechat_adapter.py" in text
+    assert "PYTHON ?= .venv/bin/python" in text
+    assert "$(PYTHON) -m pytest tests/ -q" in text
+    assert "$(PYTHON) -m pyright" in text
+    assert "$(PYTHON) -m compileall agent engine memory persona providers server skills tests main.py wechat_adapter.py" in text
     assert "swift build" in text

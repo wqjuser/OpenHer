@@ -308,6 +308,11 @@ final class AppState: ObservableObject {
 
     func updateBackendStatus(_ status: BackendStatus) {
         isConnected = status.isRunning
+        if let chat = status.capabilities?.chat {
+            isChatAvailable = chat.available
+            chatUnavailableReason = chat.available ? nil : chat.displayUnavailableReason
+            return
+        }
         guard let llm = status.providers?.llm else {
             isChatAvailable = true
             chatUnavailableReason = nil

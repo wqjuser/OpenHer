@@ -107,5 +107,27 @@ def test_api_status_reports_provider_readiness_without_secrets():
             "available": False,
         },
     }
+    assert body["capabilities"] == {
+        "chat": {
+            "available": False,
+            "reason": "LLM provider is not configured (missing DEEPSEEK_API_KEY or LLM_API_KEY)",
+            "requires": ["llm"],
+        },
+        "voice": {
+            "available": False,
+            "reason": "TTS provider is not configured (missing DASHSCOPE_API_KEY or TTS_API_KEY)",
+            "requires": ["tts"],
+        },
+        "image": {
+            "available": True,
+            "reason": "",
+            "requires": ["image"],
+        },
+        "memory": {
+            "available": False,
+            "reason": "EverMemOS is not available",
+            "requires": ["memory"],
+        },
+    }
     assert "secret" not in response.text
     assert "memory.example.test" not in response.text

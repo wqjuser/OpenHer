@@ -14,9 +14,13 @@ def test_api_client_exposes_typed_backend_provider_status():
     assert "struct BackendStatus: Decodable" in source
     assert "struct BackendProviders: Decodable" in source
     assert "struct ProviderCapability: Decodable" in source
+    assert "struct BackendCapabilities: Decodable" in source
+    assert "struct CapabilitySummary: Decodable" in source
+    assert "let capabilities: BackendCapabilities?" in source
     assert "func fetchBackendStatus() async throws -> BackendStatus" in source
     assert "return try JSONDecoder().decode(BackendStatus.self, from: data)" in source
     assert "var isRunning: Bool" in source
+    assert "let reason: String" in source
     assert "missing_key_env" in source
 
 
@@ -28,6 +32,7 @@ def test_app_state_and_connection_manager_track_chat_availability():
     assert "@Published var chatUnavailableReason: String? = nil" in app_state
     assert "var canSendChat: Bool" in app_state
     assert "func updateBackendStatus(_ status: BackendStatus)" in app_state
+    assert "status.capabilities?.chat" in app_state
     assert "status.providers?.llm" in app_state
     assert "chatUnavailableReason =" in app_state
     assert "let status = try await appState.apiClient.fetchBackendStatus()" in connection
