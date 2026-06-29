@@ -59,10 +59,18 @@ def parse_photo_description(modality_text: str) -> Optional[str]:
     return result['description'] or None
 
 
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
 def get_idimage_dir(persona_id: str) -> Path:
     """Get the idimage directory for a persona."""
-    base = Path(__file__).resolve().parents[2]
-    return base / "persona" / "personas" / persona_id / "idimage"
+    return _repo_root() / "persona" / "personas" / persona_id / "idimage"
+
+
+def get_selfie_cache_dir(persona_id: str) -> Path:
+    """Get the repo-root cache directory for generated persona selfies."""
+    return _repo_root() / ".cache" / "selfie" / persona_id
 
 
 def list_reference_images(persona_id: str) -> dict[str, str]:
@@ -148,11 +156,7 @@ async def generate_selfie(
 
     # Get image provider
     try:
-        provider = get_image_gen(
-            cache_dir=str(
-                Path(__file__).resolve().parents[2] / ".cache" / "selfie" / persona_id
-            ),
-        )
+        provider = get_image_gen(cache_dir=str(get_selfie_cache_dir(persona_id)))
     except ValueError as e:
         return {"success": False, "error": str(e)}
 
