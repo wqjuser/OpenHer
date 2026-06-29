@@ -153,7 +153,7 @@ async def startup(context: AppContext) -> None:
             "已禁用语音技能和 WebSocket TTS"
         )
     context.media_api_service = MediaApiService(
-        tts_engine=context.tts_engine,
+        tts_engine=context.tts_engine if tts_available else None,
         image_cache_dir=resolve_image_cache_dir(base_dir),
     )
 
