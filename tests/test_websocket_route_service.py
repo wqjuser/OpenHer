@@ -221,6 +221,68 @@ async def test_websocket_route_service_buffers_chat_messages_before_flush():
     assert session_manager.removed == ["session-2"]
 
 
+async def test_websocket_route_service_reports_unavailable_when_chat_service_missing():
+    from server.websocket_route_service import WebSocketRouteService
+
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    websocket = FakeWebSocket([
+        {"type": "chat", "content": "hi", "persona_id": "luna"},
+    ])
+    registry = FakeRegistry()
+    service = WebSocketRouteService(
+        registry=registry,
+        chat_turn_service=None,
+        debounce_fallback_sec=0,
+        sleep=fake_sleep,
+    )
+
+    await service.handle_connection(websocket)
+
+    assert websocket.sent == [{
+        "type": "error",
+        "code": "service_unavailable",
+        "content": "聊天服务暂不可用，请先配置 LLM provider key",
+    }]
+    assert 0 in sleep_calls
+    assert registry.unregister_websocket_calls == [websocket]
+
+
+async def test_websocket_route_service_reports_unavailable_for_session_commands():
+    from server.websocket_route_service import WebSocketRouteService
+
+    websocket = FakeWebSocket([
+        {"type": "status"},
+        {"type": "switch_persona", "persona_id": "iris"},
+        {"type": "demo_presets"},
+    ])
+    registry = FakeRegistry()
+    service = WebSocketRouteService(registry=registry)
+
+    await service.handle_connection(websocket)
+
+    assert websocket.sent == [
+        {
+            "type": "error",
+            "code": "service_unavailable",
+            "content": "会话状态暂不可用，请先配置 LLM provider key",
+        },
+        {
+            "type": "error",
+            "code": "service_unavailable",
+            "content": "角色切换暂不可用，请先配置 LLM provider key",
+        },
+        {
+            "type": "error",
+            "code": "service_unavailable",
+            "content": "演示命令暂不可用，请先配置 LLM provider key",
+        },
+    ]
+
+
 def test_websocket_route_delegates_connection_loop_to_route_service_boundary():
     source = (ROOT / "server/routes/websocket.py").read_text(encoding="utf-8")
     route_body = source.split("async def websocket_chat", 1)[1]

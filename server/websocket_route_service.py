@@ -69,15 +69,18 @@ class WebSocketRouteService:
             msg_buffer = []
             debounce_task = None
 
-            if self.chat_turn_service:
-                result = await self.chat_turn_service.handle_messages(
-                    websocket=websocket,
-                    messages=msgs,
-                    agent=agent,
-                    session_id=session_id,
-                )
-                session_id = result.session_id
-                agent = result.agent
+            if not self.chat_turn_service:
+                await self._send_unavailable(websocket, "聊天服务暂不可用，请先配置 LLM provider key")
+                return
+
+            result = await self.chat_turn_service.handle_messages(
+                websocket=websocket,
+                messages=msgs,
+                agent=agent,
+                session_id=session_id,
+            )
+            session_id = result.session_id
+            agent = result.agent
 
         async def schedule_flush(delay: float) -> None:
             nonlocal debounce_task
@@ -149,30 +152,38 @@ class WebSocketRouteService:
                             "type": "status",
                             **agent.get_status(),
                         })
+                    else:
+                        await self._send_unavailable(websocket, "会话状态暂不可用，请先配置 LLM provider key")
 
                 elif msg_type == "switch_persona":
-                    if self.persona_switch_service:
-                        switch_result = await self.persona_switch_service.switch(
-                            websocket=websocket,
-                            current_session_id=session_id,
-                            persona_id=msg.get("persona_id", ""),
-                            user_name=msg.get("user_name"),
-                            client_id=msg.get("client_id"),
-                        )
-                        if switch_result:
-                            session_id, agent = switch_result
+                    if not self.persona_switch_service:
+                        await self._send_unavailable(websocket, "角色切换暂不可用，请先配置 LLM provider key")
+                        continue
+
+                    switch_result = await self.persona_switch_service.switch(
+                        websocket=websocket,
+                        current_session_id=session_id,
+                        persona_id=msg.get("persona_id", ""),
+                        user_name=msg.get("user_name"),
+                        client_id=msg.get("client_id"),
+                    )
+                    if switch_result:
+                        session_id, agent = switch_result
 
                 elif msg_type.startswith("demo_"):
-                    if self.demo_command_service:
-                        demo_result = await self.demo_command_service.handle(
-                            websocket=websocket,
-                            message=msg,
-                            agent=agent,
-                            session_id=session_id,
-                        )
-                        if demo_result.handled:
-                            session_id = demo_result.session_id
-                            agent = demo_result.agent
+                    if not self.demo_command_service:
+                        await self._send_unavailable(websocket, "演示命令暂不可用，请先配置 LLM provider key")
+                        continue
+
+                    demo_result = await self.demo_command_service.handle(
+                        websocket=websocket,
+                        message=msg,
+                        agent=agent,
+                        session_id=session_id,
+                    )
+                    if demo_result.handled:
+                        session_id = demo_result.session_id
+                        agent = demo_result.agent
 
         except WebSocketDisconnect:
             pass
@@ -198,3 +209,10 @@ class WebSocketRouteService:
             if session_id and self.session_manager:
                 self.session_manager.remove(session_id)
             print(f"[ws] 连接关闭: session={session_id}")
+
+    async def _send_unavailable(self, websocket: Any, content: str) -> None:
+        await websocket.send_json({
+            "type": "error",
+            "code": "service_unavailable",
+            "content": content,
+        })
