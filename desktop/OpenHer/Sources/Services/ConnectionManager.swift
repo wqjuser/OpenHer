@@ -33,13 +33,19 @@ final class ConnectionManager {
         guard let appState = appState else { return }
 
         do {
-            let running = try await appState.apiClient.checkStatus()
-            if running && !appState.isConnected {
+            let wasConnected = appState.isConnected
+            let status = try await appState.apiClient.fetchBackendStatus()
+            appState.updateBackendStatus(status)
+            if status.isRunning && !wasConnected {
                 appState.wsManager.connect()
             }
-            appState.isConnected = running
         } catch {
             appState.isConnected = false
+            appState.isChatAvailable = false
+            appState.chatUnavailableReason = L10n.str(
+                "后端未连接",
+                en: "Backend disconnected"
+            )
             print("[Connection] Backend unreachable: \(error.localizedDescription)")
         }
     }

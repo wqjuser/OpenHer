@@ -152,6 +152,8 @@ struct ConversationPanel: View {
             InputLine(
                 text: $inputText,
                 isFocused: $inputFocused,
+                isEnabled: appState.canSendChat,
+                unavailableReason: appState.chatUnavailableReason,
                 onSend: sendMessage
             )
             .onChange(of: inputFocused) { _, focused in
@@ -201,7 +203,7 @@ struct ConversationPanel: View {
 
     private func sendMessage() {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty, appState.canSendChat else { return }
         inputText = ""
         appState.sendMessage(trimmed)
     }
