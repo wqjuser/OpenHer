@@ -304,11 +304,11 @@ cp .env.example .env
 ```bash
 make install        # 安装运行时依赖和开发检查工具
 make check          # pyright + compileall + pytest + whitespace check
-make integration-smoke  # RUN_OPENHER_INTEGRATION=1，调用真实 LLM / EverMemOS 配置做 smoke
+make integration-smoke  # RUN_OPENHER_INTEGRATION=1，调用真实 LLM/EverMemOS + TTS/Image provider factory smoke
 make desktop-build  # 构建 macOS Swift Package
 ```
 
-`make integration-smoke` 会读取 `.env` 并访问真实外部服务；默认测试和 `make check` 不会调用 provider API。
+`make integration-smoke` 会读取 `.env` 并访问真实 LLM / EverMemOS 外部服务；TTS/Image provider factory smoke 只验证配置解析和 provider 实例化，不会生成音频或图片。默认测试和 `make check` 不会调用 provider API。
 
 ### 二、配置环境变量
 

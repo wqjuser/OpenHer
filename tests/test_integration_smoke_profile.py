@@ -22,11 +22,19 @@ def test_provider_smoke_script_is_explicitly_opt_in() -> None:
     assert "ChatMessage" in source
     assert "get_memory_config" in source
     assert "EverMemOSClient" in source
+    assert "get_tts_config" in source
+    assert "get_image_config" in source
+    assert "get_tts" in source
+    assert "get_image_gen" in source
     assert "async def smoke_llm_chat" in source
     assert "async def smoke_evermemos" in source
+    assert "async def smoke_tts_provider" in source
+    assert "async def smoke_image_provider" in source
     assert "print(cfg" not in source
     assert "print(llm_cfg" not in source
     assert "print(memory_cfg" not in source
+    assert "print(tts_cfg" not in source
+    assert "print(image_cfg" not in source
 
 
 def test_provider_smoke_script_skips_without_opt_in() -> None:
@@ -59,3 +67,5 @@ def test_makefile_and_readme_document_integration_smoke() -> None:
     assert "scripts/integration/provider_smoke.py" in makefile
     assert "make integration-smoke" in readme
     assert "RUN_OPENHER_INTEGRATION=1" in readme
+    assert "TTS/Image provider factory smoke" in readme
+    assert "不会生成音频或图片" in readme
