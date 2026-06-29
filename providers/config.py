@@ -45,6 +45,17 @@ def _first_env(*names: str) -> str:
     return ""
 
 
+def _api_key_env_options(provider: str, preset_env: str, generic_env: str = "") -> list[str]:
+    """Return API-key env candidates in priority order without duplicates."""
+    provider_env = f"{_provider_env_prefix(provider)}_API_KEY"
+    return [name for name in dict.fromkeys((preset_env, provider_env, generic_env)) if name]
+
+
+def _missing_key_env(options: list[str]) -> str:
+    """Render a readable missing-key hint for accepted API-key env vars."""
+    return " or ".join(options)
+
+
 def _load() -> dict:
     """Load providers/api.yaml once. Returns an empty dict on error."""
     global _config
@@ -150,13 +161,19 @@ def get_tts_config(provider: Optional[str] = None) -> dict:
     api_keys = {}
     for name, provider_cfg in providers.items():
         env_var = provider_cfg.get("api_key_env", "")
-        api_keys[name] = os.getenv(env_var, "") if env_var else ""
+        generic_env = "TTS_API_KEY" if name == provider_name else ""
+        api_keys[name] = _first_env(*_api_key_env_options(name, env_var, generic_env))
 
     active_preset = providers.get(provider_name, {})
     active_api_key = api_keys.get(provider_name, "")
     no_key_required = bool(active_preset.get("no_key_required", False))
     available = no_key_required or bool(active_api_key)
-    missing_key_env = "" if available else active_preset.get("api_key_env", "")
+    active_key_env_options = _api_key_env_options(
+        provider_name,
+        active_preset.get("api_key_env", ""),
+        "TTS_API_KEY",
+    )
+    missing_key_env = "" if available else _missing_key_env(active_key_env_options)
 
     return {
         "provider": provider_name,
@@ -233,13 +250,19 @@ def get_image_config(provider: Optional[str] = None) -> dict:
     api_keys = {}
     for name, provider_cfg in providers.items():
         env_var = provider_cfg.get("api_key_env", "")
-        api_keys[name] = os.getenv(env_var, "") if env_var else ""
+        generic_env = "IMAGE_API_KEY" if name == provider_name else ""
+        api_keys[name] = _first_env(*_api_key_env_options(name, env_var, generic_env))
 
     active_preset = providers.get(provider_name, {})
     active_api_key = api_keys.get(provider_name, "")
     no_key_required = bool(active_preset.get("no_key_required", False))
     available = no_key_required or bool(active_api_key)
-    missing_key_env = "" if available else active_preset.get("api_key_env", "")
+    active_key_env_options = _api_key_env_options(
+        provider_name,
+        active_preset.get("api_key_env", ""),
+        "IMAGE_API_KEY",
+    )
+    missing_key_env = "" if available else _missing_key_env(active_key_env_options)
 
     return {
         "provider": provider_name,

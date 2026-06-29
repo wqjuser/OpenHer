@@ -61,6 +61,7 @@ def test_provider_smoke_script_skips_without_opt_in() -> None:
 def test_makefile_and_readme_document_integration_smoke() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
 
     assert "integration-smoke:" in makefile
     assert "RUN_OPENHER_INTEGRATION=1" in makefile
@@ -69,3 +70,7 @@ def test_makefile_and_readme_document_integration_smoke() -> None:
     assert "RUN_OPENHER_INTEGRATION=1" in readme
     assert "TTS/Image provider factory smoke" in readme
     assert "不会生成音频或图片" in readme
+    assert "TTS_API_KEY" in readme
+    assert "IMAGE_API_KEY" in readme
+    assert "TTS_API_KEY" in env_example
+    assert "IMAGE_API_KEY" in env_example
