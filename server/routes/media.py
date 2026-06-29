@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
 from engine.path_security import safe_child_path
+from providers.api_config import get_image_config
 from server.context import context_from_request
 from server.errors import external_error_detail
 from server.media import media_type_for_file
@@ -25,6 +26,16 @@ router = APIRouter()
 BASE_DIR = Path(__file__).resolve().parents[2]
 
 
+def _fallback_media_service(ctx) -> MediaApiService:
+    image_cfg = get_image_config()
+    return MediaApiService(
+        tts_engine=ctx.tts_engine,
+        image_cache_dir=resolve_image_cache_dir(BASE_DIR),
+        image_available=bool(image_cfg.get("available", False)),
+        image_unavailable_reason=str(image_cfg.get("missing_key_env") or ""),
+    )
+
+
 @router.get("/api/tts")
 async def tts_api(
     request: Request,
@@ -35,10 +46,7 @@ async def tts_api(
     if not text:
         raise HTTPException(status_code=400, detail="Text is required")
     ctx = context_from_request(request)
-    service = ctx.media_api_service or MediaApiService(
-        tts_engine=ctx.tts_engine,
-        image_cache_dir=resolve_image_cache_dir(BASE_DIR),
-    )
+    service = ctx.media_api_service or _fallback_media_service(ctx)
     try:
         result = await service.synthesize_tts(
             text=text,
@@ -69,16 +77,15 @@ async def image_api(
         raise HTTPException(status_code=400, detail="Prompt is required")
 
     ctx = context_from_request(request)
-    service = ctx.media_api_service or MediaApiService(
-        tts_engine=ctx.tts_engine,
-        image_cache_dir=resolve_image_cache_dir(BASE_DIR),
-    )
+    service = ctx.media_api_service or _fallback_media_service(ctx)
     try:
         result = await service.generate_image(
             prompt=prompt,
             aspect_ratio=aspect_ratio,
             image_size=image_size,
         )
+    except MediaApiServiceUnavailable as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except MediaApiProviderConfigError as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
     except MediaApiProviderError as e:

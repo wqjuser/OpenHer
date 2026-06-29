@@ -237,12 +237,17 @@ def get_image_config(provider: Optional[str] = None) -> dict:
 
     active_preset = providers.get(provider_name, {})
     active_api_key = api_keys.get(provider_name, "")
+    no_key_required = bool(active_preset.get("no_key_required", False))
+    available = no_key_required or bool(active_api_key)
+    missing_key_env = "" if available else active_preset.get("api_key_env", "")
 
     return {
         "provider": provider_name,
         "cache_dir": image.get("cache_dir", ".cache/image"),
         "api_keys": api_keys,
         "active_api_key": active_api_key,
+        "available": available,
+        "missing_key_env": missing_key_env,
         "model": active_preset.get("model", ""),
         "providers": providers,
         "active_provider_config": active_preset,

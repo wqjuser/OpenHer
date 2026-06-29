@@ -61,10 +61,14 @@ class MediaApiService:
         tts_engine: Any,
         image_cache_dir: str | Path,
         image_provider_factory: ImageProviderFactory | None = None,
+        image_available: bool = True,
+        image_unavailable_reason: str = "",
     ) -> None:
         self.tts_engine = tts_engine
         self.image_cache_dir = Path(image_cache_dir)
         self.image_provider_factory = image_provider_factory or self._default_image_provider_factory
+        self.image_available = image_available
+        self.image_unavailable_reason = image_unavailable_reason
 
     async def synthesize_tts(
         self,
@@ -104,6 +108,10 @@ class MediaApiService:
         aspect_ratio: str,
         image_size: str,
     ) -> MediaFileResult:
+        if not self.image_available:
+            reason = f" (missing {self.image_unavailable_reason})" if self.image_unavailable_reason else ""
+            raise MediaApiServiceUnavailable(f"Image provider is not configured{reason}")
+
         try:
             provider = self.image_provider_factory(cache_dir=str(self.image_cache_dir))
         except ValueError as e:
