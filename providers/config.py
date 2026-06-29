@@ -102,14 +102,17 @@ def get_llm_config(provider: Optional[str] = None) -> dict:
     )
     providers = llm.get("providers", {})
     preset = providers.get(provider_name, {})
-    provider_prefix = _provider_env_prefix(provider_name)
 
     api_key_env = preset.get("api_key_env", "")
-    api_key = _first_env(api_key_env, f"{provider_prefix}_API_KEY", "LLM_API_KEY")
+    api_key_env_options = _api_key_env_options(provider_name, api_key_env, "LLM_API_KEY")
+    api_key = _first_env(*api_key_env_options)
+    no_key_required = bool(preset.get("no_key_required", False))
+    available = no_key_required or bool(api_key)
+    missing_key_env = "" if available else _missing_key_env(api_key_env_options)
 
     base_url_env = preset.get("base_url_env", "")
     base_url = (
-        _first_env(f"{provider_prefix}_BASE_URL", "LLM_BASE_URL", base_url_env)
+        _first_env(f"{_provider_env_prefix(provider_name)}_BASE_URL", "LLM_BASE_URL", base_url_env)
         or preset.get("base_url", "")
     )
 
@@ -125,9 +128,12 @@ def get_llm_config(provider: Optional[str] = None) -> dict:
         "model": model,
         "api_key": api_key,
         "base_url": base_url,
+        "available": available,
+        "missing_key_env": missing_key_env,
         "temperature": llm.get("temperature", 0.92),
         "max_tokens": llm.get("max_tokens", 1024),
         "providers": providers,
+        "active_provider_config": preset,
     }
 
 

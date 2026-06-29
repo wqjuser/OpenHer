@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,3 +79,28 @@ def test_makefile_and_readme_document_integration_smoke() -> None:
     assert "MEMORY_BASE_URL" in readme
     assert "MEMORY_API_KEY" in env_example
     assert "MEMORY_BASE_URL" in env_example
+
+
+async def test_llm_smoke_skips_when_provider_is_unavailable() -> None:
+    from scripts.integration import provider_smoke
+
+    class ExplodingLLMClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("LLMClient should not be constructed for unavailable providers")
+
+    unavailable_cfg = {
+        "provider": "deepseek",
+        "model": "deepseek-v4-pro",
+        "available": False,
+        "missing_key_env": "DEEPSEEK_API_KEY or LLM_API_KEY",
+    }
+
+    with patch("providers.config.get_llm_config", return_value=unavailable_cfg):
+        with patch("providers.llm.client.LLMClient", ExplodingLLMClient):
+            result = await provider_smoke.smoke_llm_chat()
+
+    assert result == {
+        "status": "skipped",
+        "provider": "deepseek",
+        "reason": "DEEPSEEK_API_KEY or LLM_API_KEY",
+    }
