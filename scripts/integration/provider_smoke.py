@@ -137,11 +137,58 @@ async def _strict_evermemos_search_status(client: Any) -> int:
         await http_client.aclose()
 
 
+async def smoke_tts_provider() -> dict[str, str]:
+    """Instantiate the configured TTS provider without generating audio."""
+    from providers.config import get_tts_config
+    from providers.registry import get_tts
+
+    tts_cfg = get_tts_config()
+    provider = str(tts_cfg["provider"])
+    if not bool(tts_cfg.get("available")):
+        reason = str(tts_cfg.get("missing_key_env") or "not_configured")
+        return {"status": "skipped", "provider": provider, "reason": reason}
+
+    cache_dir = ROOT / ".cache" / "integration" / "tts"
+    instance = get_tts(provider=provider, cache_dir=str(cache_dir))
+    return {
+        "status": "ok",
+        "provider": provider,
+        "class": type(instance).__name__,
+        "cache_dir": ".cache/integration/tts",
+    }
+
+
+async def smoke_image_provider() -> dict[str, str]:
+    """Instantiate the configured image provider without generating an image."""
+    from providers.config import get_image_config
+    from providers.registry import get_image_gen
+
+    image_cfg = get_image_config()
+    provider = str(image_cfg["provider"])
+    active_preset = image_cfg.get("active_provider_config", {})
+    no_key_required = bool(active_preset.get("no_key_required", False))
+    if not no_key_required and not image_cfg.get("active_api_key"):
+        reason = str(active_preset.get("api_key_env") or "not_configured")
+        return {"status": "skipped", "provider": provider, "reason": reason}
+
+    cache_dir = ROOT / ".cache" / "integration" / "image"
+    instance = get_image_gen(provider=provider, cache_dir=str(cache_dir))
+    return {
+        "status": "ok",
+        "provider": provider,
+        "model": str(image_cfg.get("model") or ""),
+        "class": type(instance).__name__,
+        "cache_dir": ".cache/integration/image",
+    }
+
+
 async def run_smoke() -> list[tuple[str, dict[str, str]]]:
     """Run all configured live provider checks."""
     results = [
         ("llm", await smoke_llm_chat()),
         ("evermemos", await smoke_evermemos()),
+        ("tts", await smoke_tts_provider()),
+        ("image", await smoke_image_provider()),
     ]
     return results
 
