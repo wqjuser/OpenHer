@@ -142,39 +142,41 @@ def _tts_section() -> dict:
     return cfg.get("tts", {})
 
 
-def get_tts_config() -> dict:
+def get_tts_config(provider: Optional[str] = None) -> dict:
     """Resolve TTS configuration including all configured API keys."""
     tts = _tts_section()
     providers = tts.get("providers", {})
-    provider = tts.get("provider", tts.get("active_provider", "dashscope"))
+    provider_name = provider or tts.get("provider", tts.get("active_provider", "dashscope"))
     api_keys = {}
     for name, provider_cfg in providers.items():
         env_var = provider_cfg.get("api_key_env", "")
         api_keys[name] = os.getenv(env_var, "") if env_var else ""
 
-    active_preset = providers.get(provider, {})
-    active_api_key = api_keys.get(provider, "")
+    active_preset = providers.get(provider_name, {})
+    active_api_key = api_keys.get(provider_name, "")
     no_key_required = bool(active_preset.get("no_key_required", False))
     available = no_key_required or bool(active_api_key)
     missing_key_env = "" if available else active_preset.get("api_key_env", "")
 
     return {
-        "provider": provider,
+        "provider": provider_name,
         "cache_dir": tts.get("cache_dir", ".cache/tts"),
         "api_keys": api_keys,
         "active_api_key": active_api_key,
         "available": available,
         "missing_key_env": missing_key_env,
         "minimax_model": providers.get("minimax", {}).get("model", "speech-2.8-turbo"),
+        "active_provider_config": active_preset,
     }
 
 
 def get_tts_provider_config() -> dict:
     """Compatibility shape used by providers.registry."""
+    resolved = get_tts_config()
     tts = _tts_section()
     return {
-        "active_provider": tts.get("provider", tts.get("active_provider", "dashscope")),
-        "cache_dir": tts.get("cache_dir", ".cache/tts"),
+        "active_provider": resolved["provider"],
+        "cache_dir": resolved["cache_dir"],
         "providers": tts.get("providers", {}),
     }
 

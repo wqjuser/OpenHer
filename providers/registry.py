@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from .config import get_llm_config, get_tts_provider_config
+from .config import get_llm_config, get_tts_config
 from .image.base import BaseImageProvider
 from .llm.base import BaseLLMProvider
 from .speech.tts.base import BaseTTSProvider
@@ -152,9 +152,9 @@ def get_tts(
     """
     _register_tts_providers()
 
-    cfg = get_tts_provider_config()
+    cfg = get_tts_config(provider)
 
-    provider_name = provider or cfg["active_provider"]
+    provider_name = cfg["provider"]
     provider_cls = _TTS_PROVIDERS.get(provider_name)
 
     if provider_cls is None:
@@ -167,19 +167,19 @@ def get_tts(
     resolved_cache = cache_dir or cfg.get("cache_dir", ".cache/tts")
     kwargs: dict = {"cache_dir": resolved_cache}
 
-    # Resolve API key from provider's preset
-    preset = cfg.get("providers", {}).get(provider_name, {})
-    resolved_key = api_key
-    if not resolved_key:
-        key_env = preset.get("api_key_env", "")
-        if key_env:
-            resolved_key = os.getenv(key_env, "")
+    preset = cfg.get("active_provider_config", {})
+    resolved_key = api_key or cfg.get("active_api_key") or None
     if resolved_key:
         kwargs["api_key"] = resolved_key
 
     # MiniMax model
     if provider_name == "minimax":
-        kwargs["model"] = minimax_model or preset.get("model", "speech-2.8-turbo")
+        kwargs["model"] = minimax_model or cfg.get("minimax_model") or preset.get("model", "speech-2.8-turbo")
+    elif provider_name == "dashscope":
+        if preset.get("model"):
+            kwargs["model"] = preset["model"]
+        if preset.get("default_voice"):
+            kwargs["default_voice"] = preset["default_voice"]
 
     return provider_cls(**kwargs)
 
