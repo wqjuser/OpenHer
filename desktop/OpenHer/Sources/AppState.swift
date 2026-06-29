@@ -344,6 +344,49 @@ final class AppState: ObservableObject {
         )
     }
 
+    @discardableResult
+    func markOutboundMessagesSent(matching mergedContent: String) -> Bool {
+        let parts = mergedContent
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        guard !parts.isEmpty else { return false }
+
+        let sendingIndices = messages.indices
+            .filter { messages[$0].role == .user && messages[$0].sendStatus == .sending }
+            .suffix(parts.count)
+        guard sendingIndices.count == parts.count else { return false }
+
+        for (index, part) in zip(sendingIndices, parts) {
+            guard messages[index].content == part else { return false }
+        }
+
+        for index in sendingIndices {
+            messages[index].sendStatus = .sent
+        }
+        return true
+    }
+
+    func handleWebSocketError(content: String, code: String?) {
+        isTyping = false
+        if let idx = messages.lastIndex(where: { $0.id == "streaming_current" }) {
+            messages.remove(at: idx)
+        }
+
+        let sendingIndices = messages.indices
+            .filter { messages[$0].role == .user && messages[$0].sendStatus == .sending }
+        for index in sendingIndices {
+            messages[index].sendStatus = .failed
+        }
+
+        if code == "service_unavailable" {
+            messages.append(ChatMessage(
+                role: .system,
+                content: content,
+                modality: "系统"
+            ))
+        }
+    }
+
     func retryMessage(id: String) {
         guard let index = messages.firstIndex(where: { $0.id == id }),
               let personaId = selectedPersonaId else { return }
