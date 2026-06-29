@@ -336,6 +336,13 @@ DEFAULT_PROVIDER=gemini           # 或 claude, dashscope, openai, minimax, moon
 DEFAULT_MODEL=gemini-3.1-flash-lite-preview
 ```
 
+媒体能力也支持通用 fallback。TTS 和图片 provider 会优先读取 provider 专属变量，例如 `DASHSCOPE_API_KEY`、`GEMINI_API_KEY`；如果专属变量没有设置，则读取当前能力的通用变量：
+
+```bash
+TTS_API_KEY=your_current_tts_api_key_here
+IMAGE_API_KEY=your_current_image_api_key_here
+```
+
 ### 三、启动后端
 
 ```bash

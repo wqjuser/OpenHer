@@ -324,7 +324,7 @@ class ProviderConfigBoundaryTests(unittest.TestCase):
         self.assertEqual(image["provider"], "gemini")
         self.assertFalse(image["available"])
         self.assertEqual(image["active_api_key"], "")
-        self.assertEqual(image["missing_key_env"], "GEMINI_API_KEY")
+        self.assertEqual(image["missing_key_env"], "GEMINI_API_KEY or IMAGE_API_KEY")
 
     def test_image_config_marks_active_provider_available_when_key_is_set(self):
         with patch.dict(os.environ, {"GEMINI_API_KEY": "gemini-image-key"}, clear=True):
@@ -335,6 +335,34 @@ class ProviderConfigBoundaryTests(unittest.TestCase):
         self.assertTrue(image["available"])
         self.assertEqual(image["active_api_key"], "gemini-image-key")
         self.assertEqual(image["missing_key_env"], "")
+
+    def test_image_config_uses_generic_api_key_for_active_provider(self):
+        with patch.dict(os.environ, {"IMAGE_API_KEY": "generic-image-key"}, clear=True):
+            _api_config, provider_config = self._reload_configs()
+
+            image = provider_config.get_image_config()
+
+        self.assertTrue(image["available"])
+        self.assertEqual(image["provider"], "gemini")
+        self.assertEqual(image["active_api_key"], "generic-image-key")
+        self.assertEqual(image["api_keys"]["gemini"], "generic-image-key")
+        self.assertEqual(image["missing_key_env"], "")
+
+    def test_image_config_prefers_provider_api_key_over_generic_key(self):
+        with patch.dict(
+            os.environ,
+            {
+                "GEMINI_API_KEY": "gemini-image-key",
+                "IMAGE_API_KEY": "generic-image-key",
+            },
+            clear=True,
+        ):
+            _api_config, provider_config = self._reload_configs()
+
+            image = provider_config.get_image_config()
+
+        self.assertEqual(image["active_api_key"], "gemini-image-key")
+        self.assertEqual(image["api_keys"]["gemini"], "gemini-image-key")
 
     def test_memory_config_single_source_enables_cloud_when_only_api_key_is_set(self):
         with patch.dict(os.environ, {"EVERMEMOS_API_KEY": "cloud-key"}, clear=True):
@@ -359,7 +387,7 @@ class ProviderConfigBoundaryTests(unittest.TestCase):
         self.assertEqual(tts["provider"], "dashscope")
         self.assertFalse(tts["available"])
         self.assertEqual(tts["active_api_key"], "")
-        self.assertEqual(tts["missing_key_env"], "DASHSCOPE_API_KEY")
+        self.assertEqual(tts["missing_key_env"], "DASHSCOPE_API_KEY or TTS_API_KEY")
 
     def test_tts_config_marks_active_provider_available_when_key_is_set(self):
         with patch.dict(os.environ, {"DASHSCOPE_API_KEY": "dash-key"}, clear=True):
@@ -370,6 +398,35 @@ class ProviderConfigBoundaryTests(unittest.TestCase):
         self.assertTrue(tts["available"])
         self.assertEqual(tts["active_api_key"], "dash-key")
         self.assertEqual(tts["missing_key_env"], "")
+
+    def test_tts_config_uses_generic_api_key_for_active_provider(self):
+        with patch.dict(os.environ, {"TTS_API_KEY": "generic-tts-key"}, clear=True):
+            _api_config, provider_config = self._reload_configs()
+
+            tts = provider_config.get_tts_config()
+
+        self.assertTrue(tts["available"])
+        self.assertEqual(tts["provider"], "dashscope")
+        self.assertEqual(tts["active_api_key"], "generic-tts-key")
+        self.assertEqual(tts["api_keys"]["dashscope"], "generic-tts-key")
+        self.assertEqual(tts["api_keys"].get("openai", ""), "")
+        self.assertEqual(tts["missing_key_env"], "")
+
+    def test_tts_config_prefers_provider_api_key_over_generic_key(self):
+        with patch.dict(
+            os.environ,
+            {
+                "DASHSCOPE_API_KEY": "dash-key",
+                "TTS_API_KEY": "generic-tts-key",
+            },
+            clear=True,
+        ):
+            _api_config, provider_config = self._reload_configs()
+
+            tts = provider_config.get_tts_config()
+
+        self.assertEqual(tts["active_api_key"], "dash-key")
+        self.assertEqual(tts["api_keys"]["dashscope"], "dash-key")
 
 
 if __name__ == "__main__":
