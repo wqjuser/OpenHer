@@ -10,10 +10,9 @@ Public API:
 
 from __future__ import annotations
 
-import os
 from typing import Optional
 
-from .config import get_llm_config, get_tts_config
+from .config import get_image_config, get_llm_config, get_tts_config
 from .image.base import BaseImageProvider
 from .llm.base import BaseLLMProvider
 from .speech.tts.base import BaseTTSProvider
@@ -220,10 +219,9 @@ def get_image_gen(
     """
     _register_image_providers()
 
-    from .config import get_image_provider_config
-    cfg = get_image_provider_config()
+    cfg = get_image_config(provider)
 
-    provider_name = provider or cfg["active_provider"]
+    provider_name = cfg["provider"]
     provider_cls = _IMAGE_PROVIDERS.get(provider_name)
 
     if provider_cls is None:
@@ -235,18 +233,14 @@ def get_image_gen(
     resolved_cache = cache_dir or cfg.get("cache_dir", ".cache/image")
     kwargs: dict = {"cache_dir": resolved_cache}
 
-    # Resolve API key
-    preset = cfg.get("providers", {}).get(provider_name, {})
-    resolved_key = api_key
-    if not resolved_key:
-        key_env = preset.get("api_key_env", "")
-        if key_env:
-            resolved_key = os.getenv(key_env, "")
+    preset = cfg.get("active_provider_config", {})
+    resolved_key = api_key or cfg.get("active_api_key") or None
     if resolved_key:
         kwargs["api_key"] = resolved_key
 
     # Model override
-    if model or preset.get("model"):
-        kwargs["model"] = model or preset.get("model")
+    resolved_model = model or cfg.get("model") or preset.get("model")
+    if resolved_model:
+        kwargs["model"] = resolved_model
 
     return provider_cls(**kwargs)
