@@ -698,14 +698,15 @@ class ExternalEndpointErrorTests(unittest.TestCase):
         context.tts_engine = cast(TTSEngineService, FailingTTS())
         app = main.create_app(context)
 
-        with patch("providers.registry.get_image_gen", return_value=FailingImageProvider()):
-            client = TestClient(app, raise_server_exceptions=False)
-            chat_resp = client.post(
-                "/api/chat",
-                json={"message": "hi", "persona_id": "luna", "client_id": "qa"},
-            )
-            tts_resp = client.get("/api/tts?text=hi")
-            image_resp = client.post("/api/image?prompt=portrait")
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-image-key"}):
+            with patch("providers.registry.get_image_gen", return_value=FailingImageProvider()):
+                client = TestClient(app, raise_server_exceptions=False)
+                chat_resp = client.post(
+                    "/api/chat",
+                    json={"message": "hi", "persona_id": "luna", "client_id": "qa"},
+                )
+                tts_resp = client.get("/api/tts?text=hi")
+                image_resp = client.post("/api/image?prompt=portrait")
 
         for resp, label in (
             (chat_resp, "chat"),
@@ -739,15 +740,38 @@ class ExternalEndpointErrorTests(unittest.TestCase):
         context.tts_engine = cast(TTSEngineService, FailedTTS())
         app = main.create_app(context)
 
-        with patch("providers.registry.get_image_gen", return_value=FailedImageProvider()):
-            client = TestClient(app, raise_server_exceptions=False)
-            tts_resp = client.get("/api/tts?text=hi")
-            image_resp = client.post("/api/image?prompt=portrait")
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-image-key"}):
+            with patch("providers.registry.get_image_gen", return_value=FailedImageProvider()):
+                client = TestClient(app, raise_server_exceptions=False)
+                tts_resp = client.get("/api/tts?text=hi")
+                image_resp = client.post("/api/image?prompt=portrait")
 
         self.assertEqual(tts_resp.status_code, 502)
         self.assertEqual(image_resp.status_code, 502)
         self.assertIn("provider rejected request", tts_resp.json()["detail"])
         self.assertIn("provider rejected request", image_resp.json()["detail"])
+
+    def test_image_endpoint_returns_service_unavailable_when_unconfigured(self):
+        from fastapi.testclient import TestClient
+        import main
+        from server.context import AppContext
+        from server.media_api_service import MediaApiService
+
+        context = AppContext()
+        context.media_api_service = MediaApiService(
+            tts_engine=None,
+            image_cache_dir=ROOT / ".cache" / "image",
+            image_available=False,
+            image_unavailable_reason="GEMINI_API_KEY",
+        )
+        app = main.create_app(context)
+
+        client = TestClient(app, raise_server_exceptions=False)
+        image_resp = client.post("/api/image?prompt=portrait")
+
+        self.assertEqual(image_resp.status_code, 503)
+        self.assertTrue(image_resp.headers["content-type"].startswith("application/json"))
+        self.assertIn("GEMINI_API_KEY", image_resp.json()["detail"])
 
 
 class DeepSeekProviderRegressionTests(unittest.TestCase):

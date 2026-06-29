@@ -315,6 +315,27 @@ class ProviderConfigBoundaryTests(unittest.TestCase):
         self.assertEqual(provider.api_key, "gemini-image-key")
         self.assertEqual(provider.model, "gemini-3.1-flash-image-preview")
 
+    def test_image_config_marks_active_provider_unavailable_when_key_is_missing(self):
+        with patch.dict(os.environ, {}, clear=True):
+            _api_config, provider_config = self._reload_configs()
+
+            image = provider_config.get_image_config()
+
+        self.assertEqual(image["provider"], "gemini")
+        self.assertFalse(image["available"])
+        self.assertEqual(image["active_api_key"], "")
+        self.assertEqual(image["missing_key_env"], "GEMINI_API_KEY")
+
+    def test_image_config_marks_active_provider_available_when_key_is_set(self):
+        with patch.dict(os.environ, {"GEMINI_API_KEY": "gemini-image-key"}, clear=True):
+            _api_config, provider_config = self._reload_configs()
+
+            image = provider_config.get_image_config()
+
+        self.assertTrue(image["available"])
+        self.assertEqual(image["active_api_key"], "gemini-image-key")
+        self.assertEqual(image["missing_key_env"], "")
+
     def test_memory_config_single_source_enables_cloud_when_only_api_key_is_set(self):
         with patch.dict(os.environ, {"EVERMEMOS_API_KEY": "cloud-key"}, clear=True):
             api_config, provider_config = self._reload_configs()

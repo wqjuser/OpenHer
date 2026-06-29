@@ -165,10 +165,8 @@ async def smoke_image_provider() -> dict[str, str]:
 
     image_cfg = get_image_config()
     provider = str(image_cfg["provider"])
-    active_preset = image_cfg.get("active_provider_config", {})
-    no_key_required = bool(active_preset.get("no_key_required", False))
-    if not no_key_required and not image_cfg.get("active_api_key"):
-        reason = str(active_preset.get("api_key_env") or "not_configured")
+    if not bool(image_cfg.get("available")):
+        reason = str(image_cfg.get("missing_key_env") or "not_configured")
         return {"status": "skipped", "provider": provider, "reason": reason}
 
     cache_dir = ROOT / ".cache" / "integration" / "image"

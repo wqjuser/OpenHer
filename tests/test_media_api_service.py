@@ -102,6 +102,34 @@ async def test_media_api_service_generates_image_file_result(tmp_path):
     assert result.filename == "generated.webp"
 
 
+async def test_media_api_service_wraps_unavailable_image_provider(tmp_path):
+    from server.media_api_service import MediaApiService, MediaApiServiceUnavailable
+
+    factory_calls: list[dict[str, Any]] = []
+
+    def fake_image_factory(**kwargs: Any) -> FakeImageProvider:
+        factory_calls.append(kwargs)
+        return FakeImageProvider(SimpleNamespace(success=True, image_path="/tmp/unused.png"))
+
+    service = MediaApiService(
+        tts_engine=None,
+        image_cache_dir=tmp_path,
+        image_provider_factory=fake_image_factory,
+        image_available=False,
+        image_unavailable_reason="GEMINI_API_KEY",
+    )
+
+    try:
+        await service.generate_image(prompt="portrait", aspect_ratio="", image_size="1K")
+    except MediaApiServiceUnavailable as exc:
+        assert "Image provider is not configured" in str(exc)
+        assert "GEMINI_API_KEY" in str(exc)
+    else:
+        raise AssertionError("expected MediaApiServiceUnavailable")
+
+    assert factory_calls == []
+
+
 def test_resolve_image_cache_dir_uses_central_image_config(tmp_path):
     from server.media_api_service import resolve_image_cache_dir
 

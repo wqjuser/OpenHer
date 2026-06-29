@@ -19,7 +19,7 @@ from engine.chat_log_store import ChatLogStore
 from engine.state_store import StateStore
 from memory.memory_store import MemoryStore
 from persona import PersonaLoader
-from providers.api_config import get_llm_config, get_memory_config, get_tts_config
+from providers.api_config import get_image_config, get_llm_config, get_memory_config, get_tts_config
 from providers.llm import LLMClient
 from providers.media.tts_engine import TTSEngine, TTSProvider
 from providers.memory.evermemos.evermemos_client import EverMemOSClient
@@ -152,9 +152,12 @@ async def startup(context: AppContext) -> None:
             f"⚠ TTS provider '{tts_cfg['provider']}' 未配置 {missing_key}，"
             "已禁用语音技能和 WebSocket TTS"
         )
+    image_cfg = get_image_config()
     context.media_api_service = MediaApiService(
         tts_engine=context.tts_engine if tts_available else None,
         image_cache_dir=resolve_image_cache_dir(base_dir),
+        image_available=bool(image_cfg.get("available", False)),
+        image_unavailable_reason=str(image_cfg.get("missing_key_env") or ""),
     )
 
     tool_registry = ToolRegistry()
