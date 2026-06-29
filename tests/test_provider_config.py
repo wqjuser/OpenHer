@@ -77,6 +77,43 @@ class ProviderConfigBoundaryTests(unittest.TestCase):
 
             self.assertEqual(api_config.get_llm_config(), provider_config.get_llm_config())
 
+    def test_api_config_exports_all_provider_config_entrypoints(self):
+        api_config = importlib.import_module("providers.api_config")
+
+        expected_exports = {
+            "EVERMEMOS_CLOUD_BASE_URL",
+            "_load",
+            "get_llm_config",
+            "get_llm_provider_config",
+            "get_tts_config",
+            "get_tts_provider_config",
+            "get_memory_config",
+            "get_memory_provider_config",
+            "get_image_config",
+            "get_image_provider_config",
+            "reload",
+        }
+
+        self.assertTrue(expected_exports.issubset(set(api_config.__all__)))
+        for name in expected_exports:
+            self.assertTrue(hasattr(api_config, name), name)
+
+    def test_api_config_delegates_to_provider_config_for_media_resolution(self):
+        with patch.dict(
+            os.environ,
+            {
+                "DASHSCOPE_API_KEY": "dash-key",
+                "GEMINI_API_KEY": "gemini-image-key",
+            },
+            clear=True,
+        ):
+            api_config, provider_config = self._reload_configs()
+
+            self.assertEqual(api_config.get_tts_config(), provider_config.get_tts_config())
+            self.assertEqual(api_config.get_tts_provider_config(), provider_config.get_tts_provider_config())
+            self.assertEqual(api_config.get_image_config(), provider_config.get_image_config())
+            self.assertEqual(api_config.get_image_provider_config(), provider_config.get_image_provider_config())
+
     def test_registry_reuses_central_llm_config_resolution(self):
         from providers import config as provider_config
         from providers import registry
