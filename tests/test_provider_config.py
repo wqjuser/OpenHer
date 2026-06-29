@@ -25,6 +25,22 @@ class _FakeLLMProvider:
         self.max_tokens = max_tokens
 
 
+class _FakeTTSProvider:
+    def __init__(
+        self,
+        cache_dir,
+        api_key=None,
+        model=None,
+        default_voice=None,
+        **kwargs,
+    ):
+        self.cache_dir = cache_dir
+        self.api_key = api_key
+        self.model = model
+        self.default_voice = default_voice
+        self.kwargs = kwargs
+
+
 class ProviderConfigBoundaryTests(unittest.TestCase):
     def _reload_configs(self):
         api_config = importlib.import_module("providers.api_config")
@@ -105,6 +121,58 @@ class ProviderConfigBoundaryTests(unittest.TestCase):
         self.assertEqual(provider.base_url, "https://openai.example.test/v1")
         self.assertNotEqual(provider.api_key, "deepseek-key")
         self.assertNotEqual(provider.base_url, "https://deepseek.example.test")
+
+    def test_registry_reuses_central_tts_config_resolution(self):
+        from providers import config as provider_config
+        from providers import registry
+
+        central_cfg = {
+            "provider": "minimax",
+            "cache_dir": "/tmp/openher-central-tts",
+            "api_keys": {"minimax": "central-minimax-key"},
+            "active_api_key": "central-minimax-key",
+            "available": True,
+            "missing_key_env": "",
+            "minimax_model": "central-minimax-model",
+            "active_provider_config": {"model": "central-minimax-model"},
+        }
+
+        with patch.dict(
+            os.environ,
+            {
+                "MINIMAX_API_KEY": "env-minimax-key",
+            },
+            clear=True,
+        ):
+            provider_config.reload()
+            with patch.dict(registry._TTS_PROVIDERS, {"minimax": _FakeTTSProvider}, clear=True):
+                with patch("providers.registry.get_tts_config", return_value=central_cfg, create=True) as get_config:
+                    provider = cast(Any, registry.get_tts())
+
+        self.assertEqual(get_config.call_count, 1)
+        self.assertEqual(provider.cache_dir, "/tmp/openher-central-tts")
+        self.assertEqual(provider.api_key, "central-minimax-key")
+        self.assertEqual(provider.model, "central-minimax-model")
+        self.assertNotEqual(provider.api_key, "env-minimax-key")
+
+    def test_tts_registry_provider_override_resolves_that_provider_config(self):
+        from providers import config as provider_config
+        from providers import registry
+
+        with patch.dict(
+            os.environ,
+            {
+                "DASHSCOPE_API_KEY": "dash-key",
+                "OPENAI_API_KEY": "openai-tts-key",
+            },
+            clear=True,
+        ):
+            provider_config.reload()
+            with patch.dict(registry._TTS_PROVIDERS, {"openai": _FakeTTSProvider}, clear=True):
+                provider = cast(Any, registry.get_tts(provider="openai"))
+
+        self.assertEqual(provider.api_key, "openai-tts-key")
+        self.assertNotEqual(provider.api_key, "dash-key")
 
     def test_memory_config_single_source_enables_cloud_when_only_api_key_is_set(self):
         with patch.dict(os.environ, {"EVERMEMOS_API_KEY": "cloud-key"}, clear=True):
