@@ -245,18 +245,21 @@ final class WebSocketManager: ObservableObject {
             // If this chat_start was sent by an external source (demo script),
             // add the user message bubble so it shows in the UI chat
             if let userContent = json["user_content"] as? String, !userContent.isEmpty {
-                let alreadyHas = appState?.messages.last(where: { $0.role == .user })?.content == userContent
-                if !alreadyHas {
-                    let msg = ChatMessage(
-                        id: UUID().uuidString,
-                        role: .user,
-                        content: userContent,
-                        modality: "文字",
-                        timestamp: Date(),
-                        sendStatus: .sent
-                    )
-                    DispatchQueue.main.async { [weak self] in
-                        self?.appState?.messages.append(msg)
+                let didMarkExisting = appState?.markOutboundMessagesSent(matching: userContent) ?? false
+                if !didMarkExisting {
+                    let alreadyHas = appState?.messages.last(where: { $0.role == .user })?.content == userContent
+                    if !alreadyHas {
+                        let msg = ChatMessage(
+                            id: UUID().uuidString,
+                            role: .user,
+                            content: userContent,
+                            modality: "文字",
+                            timestamp: Date(),
+                            sendStatus: .sent
+                        )
+                        DispatchQueue.main.async { [weak self] in
+                            self?.appState?.messages.append(msg)
+                        }
                     }
                 }
             }
@@ -384,8 +387,9 @@ final class WebSocketManager: ObservableObject {
 
         case "error":
             let errContent = json["content"] as? String ?? "Unknown error"
+            let errCode = json["code"] as? String
             print("[WS] Error: \(errContent)")
-            appState?.isTyping = false
+            appState?.handleWebSocketError(content: errContent, code: errCode)
 
         case "tts_audio":
             // Decode base64 audio and attach to last assistant message
