@@ -61,6 +61,7 @@ class EverMemOSClient:
         self._base_url = (
             base_url
             or os.environ.get("EVERMEMOS_BASE_URL")
+            or os.environ.get("MEMORY_BASE_URL")
             or _CFG.get("base_url")
             or "http://localhost:1995/api/v1"
         )
@@ -72,7 +73,7 @@ class EverMemOSClient:
                 self._base_url += "/api/v1"
 
         # Optional API key (for cloud fallback or authenticated setups)
-        self._api_key = api_key or os.environ.get("EVERMEMOS_API_KEY")
+        self._api_key = api_key or os.environ.get("EVERMEMOS_API_KEY") or os.environ.get("MEMORY_API_KEY")
 
         self._client: Optional["httpx_types.AsyncClient"] = None
         self._initialized = False
@@ -146,7 +147,10 @@ class EverMemOSClient:
                     timeout=8.0,
                 )
             if resp.status_code == 401:
-                print(f"✗ EverMemOS API key 无效 (HTTP 401) — 请检查 .env 中的 EVERMEMOS_API_KEY")
+                print(
+                    "✗ EverMemOS API key 无效 (HTTP 401) — "
+                    "请检查 .env 中的 EVERMEMOS_API_KEY 或 MEMORY_API_KEY"
+                )
                 self._initialized = False
                 return False
             if resp.status_code == 200:

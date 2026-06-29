@@ -204,10 +204,10 @@ def get_memory_config() -> dict:
     mem = cfg.get("memory", {})
     ever_cfg = mem.get("evermemos", {})
 
-    env_base_url = os.getenv("EVERMEMOS_BASE_URL", "")
+    env_base_url = _first_env("EVERMEMOS_BASE_URL", "MEMORY_BASE_URL")
     base_url = env_base_url or ever_cfg.get("base_url", "") or mem.get("base_url", "")
     api_key_env = ever_cfg.get("api_key_env", "") or mem.get("api_key_env", "EVERMEMOS_API_KEY")
-    api_key = os.getenv(api_key_env, "") if api_key_env else ""
+    api_key = _first_env(api_key_env, "EVERMEMOS_API_KEY", "MEMORY_API_KEY")
 
     enabled = ever_cfg.get("enabled", mem.get("enabled", False))
     if env_base_url or api_key:

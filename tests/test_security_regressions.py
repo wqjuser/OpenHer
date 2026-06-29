@@ -12,6 +12,7 @@ import importlib.util
 import os
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
 import unittest
@@ -890,6 +891,55 @@ class EverMemOSLoggingRegressionTests(unittest.TestCase):
             self.assertTrue(mem_cfg["enabled"])
             self.assertEqual(mem_cfg["base_url"], "https://api.evermind.ai/api/v1")
             self.assertEqual(mem_cfg["api_key"], "cloud-key")
+
+    def test_evermemos_env_precedence_prefers_provider_specific_values(self):
+        from providers import api_config
+
+        with patch.dict(
+            os.environ,
+            {
+                "EVERMEMOS_API_KEY": "evermemos-key",
+                "MEMORY_API_KEY": "generic-memory-key",
+                "EVERMEMOS_BASE_URL": "https://evermemos.example.test/api/v1",
+                "MEMORY_BASE_URL": "https://memory.example.test/api/v1",
+            },
+            clear=True,
+        ):
+            api_config.reload()
+            mem_cfg = api_config.get_memory_config()
+
+        try:
+            api_config.reload()
+        finally:
+            self.assertTrue(mem_cfg["enabled"])
+            self.assertEqual(mem_cfg["base_url"], "https://evermemos.example.test/api/v1")
+            self.assertEqual(mem_cfg["api_key"], "evermemos-key")
+
+    def test_evermemos_client_uses_generic_memory_env_fallbacks(self):
+        ever = importlib.import_module("providers.memory.evermemos.evermemos_client")
+
+        class FakeAsyncClient:
+            def __init__(self, *, base_url, headers, timeout, trust_env):
+                self.base_url = base_url
+                self.headers = headers
+                self.timeout = timeout
+                self.trust_env = trust_env
+
+        with patch.dict(
+            os.environ,
+            {
+                "MEMORY_API_KEY": "generic-memory-key",
+                "MEMORY_BASE_URL": "https://memory.example.test",
+            },
+            clear=True,
+        ):
+            with patch.object(ever, "httpx", SimpleNamespace(AsyncClient=FakeAsyncClient)):
+                client = ever.EverMemOSClient()
+
+        self.assertTrue(client.available)
+        self.assertEqual(client._base_url, "https://memory.example.test/api/v1")
+        self.assertEqual(client._api_key, "generic-memory-key")
+        self.assertEqual(client._client.headers["Authorization"], "Bearer generic-memory-key")
 
     def test_store_turn_reports_success_as_boolean(self):
         ever = importlib.import_module("providers.memory.evermemos.evermemos_client")
