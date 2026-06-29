@@ -25,3 +25,18 @@ def test_main_delegates_lifespan_to_bootstrap_module():
     assert "await bootstrap.shutdown(context)" in main_source
     assert "async def startup(" not in main_source
     assert "async def shutdown(" not in main_source
+
+
+def test_bootstrap_degrades_when_llm_provider_is_unavailable():
+    bootstrap_source = (ROOT / "server" / "bootstrap.py").read_text(encoding="utf-8")
+
+    assert 'llm_available = bool(llm_cfg.get("available", True))' in bootstrap_source
+    assert "context.llm_client = None" in bootstrap_source
+    assert "LLM provider" in bootstrap_source
+    assert "ChatApiService(" in bootstrap_source
+    assert "session_manager=None" in bootstrap_source
+    assert "context.session_agent_factory = None" in bootstrap_source
+    assert "context.session_manager = None" in bootstrap_source
+    assert "if context.llm_client and context.session_manager:" in bootstrap_source
+    assert "context.proactive_service = None" in bootstrap_source
+    assert "context.proactive_task = None" in bootstrap_source
