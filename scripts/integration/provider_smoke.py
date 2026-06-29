@@ -40,6 +40,10 @@ async def smoke_llm_chat() -> dict[str, str]:
     llm_cfg = get_llm_config()
     provider = str(llm_cfg["provider"])
     model = str(llm_cfg["model"])
+    if not bool(llm_cfg.get("available", True)):
+        reason = str(llm_cfg.get("missing_key_env") or "not_configured")
+        return {"status": "skipped", "provider": provider, "reason": reason}
+
     client = LLMClient(
         provider=provider,
         model=model,

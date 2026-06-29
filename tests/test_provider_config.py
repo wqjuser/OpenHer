@@ -173,6 +173,28 @@ class ProviderConfigBoundaryTests(unittest.TestCase):
         self.assertNotEqual(provider.api_key, "deepseek-key")
         self.assertNotEqual(provider.base_url, "https://deepseek.example.test")
 
+    def test_llm_config_marks_key_required_provider_unavailable_when_key_is_missing(self):
+        with patch.dict(os.environ, {"DEFAULT_PROVIDER": "deepseek"}, clear=True):
+            _api_config, provider_config = self._reload_configs()
+
+            llm = provider_config.get_llm_config()
+
+        self.assertEqual(llm["provider"], "deepseek")
+        self.assertFalse(llm["available"])
+        self.assertEqual(llm["api_key"], "")
+        self.assertEqual(llm["missing_key_env"], "DEEPSEEK_API_KEY or LLM_API_KEY")
+
+    def test_llm_config_marks_no_key_provider_available_without_key(self):
+        with patch.dict(os.environ, {"DEFAULT_PROVIDER": "ollama"}, clear=True):
+            _api_config, provider_config = self._reload_configs()
+
+            llm = provider_config.get_llm_config()
+
+        self.assertEqual(llm["provider"], "ollama")
+        self.assertTrue(llm["available"])
+        self.assertEqual(llm["api_key"], "")
+        self.assertEqual(llm["missing_key_env"], "")
+
     def test_registry_reuses_central_tts_config_resolution(self):
         from providers import config as provider_config
         from providers import registry
