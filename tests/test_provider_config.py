@@ -225,6 +225,46 @@ class ProviderConfigBoundaryTests(unittest.TestCase):
         self.assertEqual(provider.api_key, "openai-tts-key")
         self.assertNotEqual(provider.api_key, "dash-key")
 
+    def test_tts_engine_reuses_central_config_resolution(self):
+        from providers.media.tts_engine import TTSEngine, TTSProvider
+
+        central_cfg = {
+            "provider": "minimax",
+            "cache_dir": "/tmp/openher-central-tts",
+            "api_keys": {"minimax": "central-minimax-key"},
+            "active_api_key": "central-minimax-key",
+            "available": True,
+            "missing_key_env": "",
+            "minimax_model": "central-minimax-model",
+            "active_provider_config": {"model": "central-minimax-model"},
+        }
+        factory_calls: list[dict[str, Any]] = []
+
+        def fake_get_tts(**kwargs: Any) -> _FakeTTSProvider:
+            factory_calls.append(kwargs)
+            return _FakeTTSProvider(
+                cache_dir=kwargs["cache_dir"],
+                api_key=kwargs.get("api_key"),
+                model=kwargs.get("minimax_model"),
+            )
+
+        with patch.dict(os.environ, {"MINIMAX_API_KEY": "env-minimax-key"}, clear=True):
+            with patch("providers.media.tts_engine.get_tts_config", return_value=central_cfg, create=True) as get_config:
+                with patch("providers.registry.get_tts", side_effect=fake_get_tts):
+                    engine = TTSEngine(provider=TTSProvider.MINIMAX, cache_dir="/tmp/openher-engine-tts")
+                    provider = cast(Any, engine)._get_provider("minimax")
+
+        self.assertEqual(get_config.call_count, 1)
+        self.assertEqual(factory_calls, [{
+            "provider": "minimax",
+            "cache_dir": "/tmp/openher-engine-tts",
+            "api_key": "central-minimax-key",
+            "minimax_model": "central-minimax-model",
+        }])
+        self.assertEqual(provider.api_key, "central-minimax-key")
+        self.assertEqual(provider.model, "central-minimax-model")
+        self.assertNotEqual(provider.api_key, "env-minimax-key")
+
     def test_registry_reuses_central_image_config_resolution(self):
         from providers import config as provider_config
         from providers import registry

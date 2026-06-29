@@ -142,10 +142,6 @@ async def startup(context: AppContext) -> None:
     context.tts_engine = TTSEngine(
         provider=TTSProvider(tts_cfg["provider"]),
         cache_dir=str(base_dir / tts_cfg["cache_dir"]),
-        openai_api_key=tts_cfg["api_keys"].get("openai"),
-        dashscope_api_key=tts_cfg["api_keys"].get("dashscope"),
-        minimax_api_key=tts_cfg["api_keys"].get("minimax"),
-        minimax_model=tts_cfg.get("minimax_model", "speech-2.8-turbo"),
     )
     if tts_available:
         context.ws_tts_service = WebSocketTTSService(tts_engine=context.tts_engine)
