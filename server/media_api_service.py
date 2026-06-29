@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from providers.config import get_image_config
 from server.errors import redact_known_secrets
 from server.media import audio_format_for_path
 
@@ -40,6 +41,15 @@ class MediaApiProviderError(RuntimeError):
 
 class MediaApiFailedResult(RuntimeError):
     """Raised when a provider returns an explicit failed result."""
+
+
+def resolve_image_cache_dir(base_dir: str | Path) -> Path:
+    """Resolve REST image cache directory from central provider config."""
+    image_cfg = get_image_config()
+    configured = Path(str(image_cfg.get("cache_dir") or ".cache/image"))
+    if configured.is_absolute():
+        return configured
+    return Path(base_dir) / configured
 
 
 class MediaApiService:

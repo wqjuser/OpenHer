@@ -17,6 +17,7 @@ from server.media_api_service import (
     MediaApiProviderError,
     MediaApiService,
     MediaApiServiceUnavailable,
+    resolve_image_cache_dir,
 )
 
 
@@ -36,7 +37,7 @@ async def tts_api(
     ctx = context_from_request(request)
     service = ctx.media_api_service or MediaApiService(
         tts_engine=ctx.tts_engine,
-        image_cache_dir=BASE_DIR / ".cache" / "image",
+        image_cache_dir=resolve_image_cache_dir(BASE_DIR),
     )
     try:
         result = await service.synthesize_tts(
@@ -70,7 +71,7 @@ async def image_api(
     ctx = context_from_request(request)
     service = ctx.media_api_service or MediaApiService(
         tts_engine=ctx.tts_engine,
-        image_cache_dir=BASE_DIR / ".cache" / "image",
+        image_cache_dir=resolve_image_cache_dir(BASE_DIR),
     )
     try:
         result = await service.generate_image(
