@@ -25,7 +25,7 @@ from providers.media.tts_engine import TTSEngine, TTSProvider
 from providers.memory.evermemos.evermemos_client import EverMemOSClient
 from server.chat_api_service import ChatApiService
 from server.context import AppContext
-from server.media_api_service import MediaApiService
+from server.media_api_service import MediaApiService, resolve_image_cache_dir
 from server.persona_api_service import PersonaApiService
 from server.proactive_service import ProactiveService
 from server.session_agent_factory import SessionAgentFactory
@@ -154,7 +154,7 @@ async def startup(context: AppContext) -> None:
         )
     context.media_api_service = MediaApiService(
         tts_engine=context.tts_engine,
-        image_cache_dir=base_dir / ".cache" / "image",
+        image_cache_dir=resolve_image_cache_dir(base_dir),
     )
 
     tool_registry = ToolRegistry()

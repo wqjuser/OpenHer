@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,6 +102,23 @@ async def test_media_api_service_generates_image_file_result(tmp_path):
     assert result.filename == "generated.webp"
 
 
+def test_resolve_image_cache_dir_uses_central_image_config(tmp_path):
+    from server.media_api_service import resolve_image_cache_dir
+
+    with patch(
+        "server.media_api_service.get_image_config",
+        return_value={"cache_dir": "custom/image-cache"},
+    ):
+        assert resolve_image_cache_dir(tmp_path) == tmp_path / "custom/image-cache"
+
+    absolute_cache = tmp_path / "absolute-image-cache"
+    with patch(
+        "server.media_api_service.get_image_config",
+        return_value={"cache_dir": str(absolute_cache)},
+    ):
+        assert resolve_image_cache_dir(tmp_path / "repo") == absolute_cache
+
+
 async def test_media_api_service_wraps_missing_tts_engine_and_provider_failures(tmp_path):
     from server.media_api_service import (
         MediaApiFailedResult,
@@ -158,12 +176,14 @@ def test_media_routes_delegate_tts_and_image_generation_to_service_boundary():
 
     assert "from server.media_api_service import" in source
     assert "MediaApiService" in source
+    assert "resolve_image_cache_dir" in source
     assert "result = await service.synthesize_tts(" in tts_body
     assert "result = await service.generate_image(" in image_body
     assert "ctx.tts_engine.synthesize(" not in tts_body
     assert "provider.generate(" not in image_body
     assert "get_image_gen" not in image_body
     assert "redact_known_secrets" not in source
+    assert 'BASE_DIR / ".cache" / "image"' not in source
 
 
 def test_app_context_and_bootstrap_expose_media_api_service_boundary():
@@ -173,5 +193,7 @@ def test_app_context_and_bootstrap_expose_media_api_service_boundary():
     assert "from server.media_api_service import MediaApiService" in context_source
     assert "media_api_service: MediaApiService | None = None" in context_source
     assert "from server.media_api_service import MediaApiService" in bootstrap_source
+    assert "resolve_image_cache_dir" in bootstrap_source
     assert "context.media_api_service = MediaApiService(" in bootstrap_source
     assert '"media_api_service": context.media_api_service' in bootstrap_source
+    assert 'base_dir / ".cache" / "image"' not in bootstrap_source
