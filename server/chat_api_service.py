@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from server.media import selfie_url_for_path
 from server.schemas import ChatRequest
 
 
@@ -87,7 +87,7 @@ class ChatApiService:
             session_id=session_id,
             response=result["reply"],
             modality=result["modality"],
-            image_url=self._image_url(result.get("image_path")),
+            image_url=selfie_url_for_path(result.get("image_path")),
             status=status,
         )
 
@@ -127,8 +127,3 @@ class ChatApiService:
             )
         except Exception as e:
             print(f"  [chat_log] save error: {e}")
-
-    def _image_url(self, image_path: Optional[str]) -> Optional[str]:
-        if not image_path:
-            return None
-        return f"/api/selfie/{os.path.basename(image_path)}"

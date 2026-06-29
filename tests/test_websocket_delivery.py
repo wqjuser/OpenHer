@@ -161,6 +161,42 @@ async def test_delivery_service_delivers_silence_and_audio_without_client_log(tm
     assert chat_log.saved_messages == []
 
 
+async def test_delivery_service_maps_selfie_paths_to_served_urls():
+    from server.websocket_delivery import WebSocketCompletedTurnDeliveryService
+
+    image_path = ROOT / ".cache" / "selfie" / "luna" / "portrait.png"
+
+    class FakeAgent:
+        def get_status(self) -> dict[str, Any]:
+            return {
+                "modality": "照片",
+                "image_path": str(image_path),
+                "temperature": 0.3,
+            }
+
+    websocket = FakeWebSocket()
+    service = WebSocketCompletedTurnDeliveryService()
+
+    await service.deliver_completed_turn(
+        websocket=websocket,
+        agent=FakeAgent(),
+        session_id="session-1",
+        persona_id="luna",
+        client_id=None,
+        merged_text="拍张照",
+        clean_reply_text="给你看",
+        debug_mode=False,
+    )
+
+    assert websocket.sent == [{
+        "type": "chat_end",
+        "reply": "给你看",
+        "modality": "照片",
+        "image_url": "/api/selfie/luna/portrait.png",
+        "temperature": 0.3,
+    }]
+
+
 def test_websocket_chat_service_delegates_completed_turn_delivery():
     source = (ROOT / "server/websocket_chat.py").read_text(encoding="utf-8")
 
@@ -174,3 +210,12 @@ def test_websocket_chat_service_delegates_completed_turn_delivery():
     assert "def _deliver_audio(" not in source
     assert "def _log_and_persist_turn(" not in source
     assert "def _image_url(" not in source
+
+
+def test_websocket_delivery_reuses_shared_selfie_url_helper():
+    source = (ROOT / "server/websocket_delivery.py").read_text(encoding="utf-8")
+
+    assert "from server.media import audio_format_for_path, selfie_url_for_path" in source
+    assert "def _image_url(" not in source
+    assert "selfie_url_for_path(image_path)" in source
+    assert "selfie_url_for_path(retry.get(\"image_path\"))" in source

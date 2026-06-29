@@ -16,7 +16,7 @@ class FakeAgent:
         self.result = result or {
             "reply": "你好",
             "modality": "文字",
-            "image_path": "/tmp/selfie/luna.png",
+            "image_path": str(ROOT / ".cache" / "selfie" / "luna" / "portrait.png"),
         }
         self.chat_calls: list[str] = []
         self.status = {"temperature": 0.42, "mood": "curious"}
@@ -127,7 +127,7 @@ async def test_chat_api_service_processes_turn_persists_agent_and_saves_display_
         "session_id": "session-1",
         "response": "你好",
         "modality": "文字",
-        "image_url": "/api/selfie/luna.png",
+        "image_url": "/api/selfie/luna/portrait.png",
         "temperature": 0.42,
         "mood": "curious",
     }

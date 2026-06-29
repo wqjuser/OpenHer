@@ -7,7 +7,7 @@ import base64
 import os
 from typing import Any, Awaitable, Callable, Optional
 
-from server.media import audio_format_for_path
+from server.media import audio_format_for_path, selfie_url_for_path
 
 
 SleepFunc = Callable[[float], Awaitable[Any]]
@@ -45,7 +45,7 @@ class WebSocketCompletedTurnDeliveryService:
 
         image_path = status.pop("image_path", None)
         audio_path = status.pop("audio_path", None)
-        image_url = self._image_url(image_path)
+        image_url = selfie_url_for_path(image_path)
         if image_path and image_url:
             print(f"  [delivery] 📷 image_path={image_path}, image_url={image_url}")
 
@@ -146,7 +146,7 @@ class WebSocketCompletedTurnDeliveryService:
             return
         await self.sleep(5)
         print(f"  [skill] 🔄 Delivering retry {retry['modality']}...")
-        retry_image_url = self._image_url(retry.get("image_path"))
+        retry_image_url = selfie_url_for_path(retry.get("image_path"))
         await websocket.send_json({
             "type": "chat_end",
             "reply": retry["reply"],
@@ -201,12 +201,3 @@ class WebSocketCompletedTurnDeliveryService:
                 )
         except Exception as e:
             print(f"  [chat_log] save error: {e}")
-
-    def _image_url(self, image_path: Optional[str]) -> Optional[str]:
-        if not image_path:
-            return None
-        parts = image_path.replace("\\", "/").split("/")
-        selfie_idx = parts.index("selfie") if "selfie" in parts else -1
-        if selfie_idx >= 0:
-            return "/api/selfie/" + "/".join(parts[selfie_idx + 1:])
-        return f"/api/selfie/{os.path.basename(image_path)}"

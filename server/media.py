@@ -14,6 +14,17 @@ def audio_format_for_path(audio_path: Optional[str]) -> str:
     return os.path.splitext(audio_path)[1].lstrip(".").lower() or "mp3"
 
 
+def selfie_url_for_path(image_path: Optional[str]) -> Optional[str]:
+    """Map a generated selfie file path to the served `/api/selfie/...` URL."""
+    if not image_path:
+        return None
+    parts = image_path.replace("\\", "/").split("/")
+    selfie_idx = parts.index("selfie") if "selfie" in parts else -1
+    if selfie_idx >= 0:
+        return "/api/selfie/" + "/".join(parts[selfie_idx + 1:])
+    return f"/api/selfie/{os.path.basename(image_path)}"
+
+
 def media_type_for_file(file_path) -> str:
     """Infer media type from file signature first, then filename."""
     path = os.fspath(file_path)
@@ -34,4 +45,3 @@ def media_type_for_file(file_path) -> str:
 
     guessed, _ = mimetypes.guess_type(path)
     return guessed or "application/octet-stream"
-

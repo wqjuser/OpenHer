@@ -90,6 +90,18 @@ class PathSecurityRegressionTests(unittest.TestCase):
 
         self.assertEqual(resolved, (base / "luna" / "photo.png").resolve())
 
+    def test_selfie_handler_uses_repo_root_media_paths(self):
+        from skills.modality.selfie_gen import handler
+
+        self.assertEqual(
+            handler.get_idimage_dir("luna"),
+            ROOT / "persona" / "personas" / "luna" / "idimage",
+        )
+        self.assertEqual(
+            handler.get_selfie_cache_dir("luna"),
+            ROOT / ".cache" / "selfie" / "luna",
+        )
+
 
 class TTSResultRegressionTests(unittest.TestCase):
     def test_tts_result_carries_mime_type_and_format(self):
