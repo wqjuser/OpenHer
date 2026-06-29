@@ -130,12 +130,21 @@ async def startup(context: AppContext) -> None:
     )
 
     llm_cfg = get_llm_config()
-    context.llm_client = LLMClient(
-        provider=llm_cfg["provider"],
-        model=llm_cfg["model"],
-        temperature=llm_cfg.get("temperature", 0.92),
-        max_tokens=llm_cfg.get("max_tokens", 1024),
-    )
+    llm_available = bool(llm_cfg.get("available", True))
+    if llm_available:
+        context.llm_client = LLMClient(
+            provider=llm_cfg["provider"],
+            model=llm_cfg["model"],
+            temperature=llm_cfg.get("temperature", 0.92),
+            max_tokens=llm_cfg.get("max_tokens", 1024),
+        )
+    else:
+        context.llm_client = None
+        missing_key = llm_cfg.get("missing_key_env") or f"{llm_cfg['provider'].upper()}_API_KEY"
+        print(
+            f"⚠ LLM provider '{llm_cfg['provider']}' 未配置 {missing_key}，"
+            "已禁用聊天会话、WebSocket 聊天和主动消息"
+        )
 
     tts_cfg = get_tts_config()
     tts_available = bool(tts_cfg.get("available", False))
@@ -203,48 +212,60 @@ async def startup(context: AppContext) -> None:
         context.evermemos = None
         print("ℹ EverMemOS: 未配置或已禁用，使用本地 MemoryStore")
 
-    context.session_agent_factory = SessionAgentFactory(
-        persona_loader=context.persona_loader,
-        llm_client=context.llm_client,
-        task_skill_engine=context.task_skill_engine,
-        modality_skill_engine=context.modality_skill_engine,
-        memory_store=context.memory_store,
-        state_store=context.state_store,
-        evermemos=context.evermemos,
-        genome_data_dir=context.genome_data_dir,
-    )
-    context.session_manager = SessionManager(
-        agent_factory=context.session_agent_factory,
-        state_store=context.state_store,
-        evermemos=context.evermemos,
-        ttl_seconds=SESSION_TTL_SECONDS,
-    )
-    context.chat_api_service = ChatApiService(
-        session_manager=context.session_manager,
-        chat_log_store=context.chat_log_store,
-    )
+    if context.llm_client:
+        context.session_agent_factory = SessionAgentFactory(
+            persona_loader=context.persona_loader,
+            llm_client=context.llm_client,
+            task_skill_engine=context.task_skill_engine,
+            modality_skill_engine=context.modality_skill_engine,
+            memory_store=context.memory_store,
+            state_store=context.state_store,
+            evermemos=context.evermemos,
+            genome_data_dir=context.genome_data_dir,
+        )
+        context.session_manager = SessionManager(
+            agent_factory=context.session_agent_factory,
+            state_store=context.state_store,
+            evermemos=context.evermemos,
+            ttl_seconds=SESSION_TTL_SECONDS,
+        )
+        context.chat_api_service = ChatApiService(
+            session_manager=context.session_manager,
+            chat_log_store=context.chat_log_store,
+        )
 
-    context.persona_switch_service = WebSocketPersonaSwitchService(
-        registry=context.ws_registry,
-        get_or_create_session=lambda session_id, persona_id, user_name=None, client_id=None: _get_or_create_session(
-            context, session_id, persona_id, user_name, client_id
-        ),
-        remove_session=lambda session_id: _remove_session(context, session_id),
-    )
-    context.ws_chat_turn_service = WebSocketChatTurnService(
-        registry=context.ws_registry,
-        get_or_create_session=lambda session_id, persona_id, user_name=None, client_id=None: _get_or_create_session(
-            context, session_id, persona_id, user_name, client_id
-        ),
-        chat_log_store=context.chat_log_store,
-    )
-    context.ws_demo_command_service = WebSocketDemoCommandService(
-        get_or_create_session=lambda session_id, persona_id, user_name=None, client_id=None: _get_or_create_session(
-            context, session_id, persona_id, user_name, client_id
-        ),
-        presets_file=str(base_dir / "demo" / "presets" / "showcase.yaml"),
-        proactive_delivery=context.ws_demo_proactive_service,
-    )
+        context.persona_switch_service = WebSocketPersonaSwitchService(
+            registry=context.ws_registry,
+            get_or_create_session=lambda session_id, persona_id, user_name=None, client_id=None: _get_or_create_session(
+                context, session_id, persona_id, user_name, client_id
+            ),
+            remove_session=lambda session_id: _remove_session(context, session_id),
+        )
+        context.ws_chat_turn_service = WebSocketChatTurnService(
+            registry=context.ws_registry,
+            get_or_create_session=lambda session_id, persona_id, user_name=None, client_id=None: _get_or_create_session(
+                context, session_id, persona_id, user_name, client_id
+            ),
+            chat_log_store=context.chat_log_store,
+        )
+        context.ws_demo_command_service = WebSocketDemoCommandService(
+            get_or_create_session=lambda session_id, persona_id, user_name=None, client_id=None: _get_or_create_session(
+                context, session_id, persona_id, user_name, client_id
+            ),
+            presets_file=str(base_dir / "demo" / "presets" / "showcase.yaml"),
+            proactive_delivery=context.ws_demo_proactive_service,
+        )
+    else:
+        context.session_agent_factory = None
+        context.session_manager = None
+        context.chat_api_service = ChatApiService(
+            session_manager=None,
+            chat_log_store=context.chat_log_store,
+        )
+        context.persona_switch_service = None
+        context.ws_chat_turn_service = None
+        context.ws_demo_command_service = None
+
     context.ws_route_service = WebSocketRouteService(
         registry=context.ws_registry,
         session_manager=context.session_manager,
@@ -254,30 +275,36 @@ async def startup(context: AppContext) -> None:
         demo_command_service=context.ws_demo_command_service,
     )
 
-    if cron_skills:
-        context.cron_scheduler = CronScheduler()
-        context.cron_scheduler.set_message_generator(
-            lambda skill_prompt, persona_id: _cron_generate_message(context, skill_prompt, persona_id)
-        )
-        context.cron_scheduler.set_message_callback(
-            lambda persona_id, skill_id, message: _cron_deliver_message(context, persona_id, skill_id, message)
-        )
-        context.cron_scheduler.register_skills(cron_skills, persona_ids=list(personas.keys()))
-        context.cron_scheduler.start()
+    if context.llm_client and context.session_manager:
+        if cron_skills:
+            context.cron_scheduler = CronScheduler()
+            context.cron_scheduler.set_message_generator(
+                lambda skill_prompt, persona_id: _cron_generate_message(context, skill_prompt, persona_id)
+            )
+            context.cron_scheduler.set_message_callback(
+                lambda persona_id, skill_id, message: _cron_deliver_message(context, persona_id, skill_id, message)
+            )
+            context.cron_scheduler.register_skills(cron_skills, persona_ids=list(personas.keys()))
+            context.cron_scheduler.start()
 
-    proactive_config = _load_proactive_config(base_dir)
-    context.proactive_service = ProactiveService(
-        state_store=context.state_store,
-        session_manager=context.session_manager,
-        evermemos=context.evermemos,
-        ws_connections=context.ws_registry.session_connections,
-        persist_agent=lambda agent: _persist_agent(context, agent),
-        instance_id=INSTANCE_ID,
-        config=proactive_config,
-        interval_seconds=PROACTIVE_INTERVAL_SECONDS,
-    )
-    context.proactive_task = asyncio.create_task(context.proactive_service.heartbeat_loop())
-    print(f"✓ 主动消息心跳已启动 (cooldown={proactive_config['cooldown_hours']}h, ttl={proactive_config['lock_ttl']}s)")
+        proactive_config = _load_proactive_config(base_dir)
+        context.proactive_service = ProactiveService(
+            state_store=context.state_store,
+            session_manager=context.session_manager,
+            evermemos=context.evermemos,
+            ws_connections=context.ws_registry.session_connections,
+            persist_agent=lambda agent: _persist_agent(context, agent),
+            instance_id=INSTANCE_ID,
+            config=proactive_config,
+            interval_seconds=PROACTIVE_INTERVAL_SECONDS,
+        )
+        context.proactive_task = asyncio.create_task(context.proactive_service.heartbeat_loop())
+        print(f"✓ 主动消息心跳已启动 (cooldown={proactive_config['cooldown_hours']}h, ttl={proactive_config['lock_ttl']}s)")
+    else:
+        if cron_skills:
+            print("⚠ LLM 未配置，已跳过定时任务调度")
+        context.proactive_service = None
+        context.proactive_task = None
 
     print("✓ OpenHer 服务启动完成 (v0.5.0 — Genome v10 Hybrid Engine)")
 
