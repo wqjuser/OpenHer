@@ -306,11 +306,12 @@ make install        # 安装运行时依赖和开发检查工具
 make check          # pyright + compileall + pytest + whitespace check
 make backend-acceptance-smoke  # in-process 后端 HTTP 验收，不启动服务进程
 make backend-runtime-smoke     # 启动真实 uvicorn 后端进程并检查核心 HTTP 路由
+make backend-websocket-smoke   # 启动真实 uvicorn + 真实 WebSocket，验证错误事件契约
 make integration-smoke  # RUN_OPENHER_INTEGRATION=1，调用真实 LLM/EverMemOS + TTS/Image provider factory smoke
 make desktop-build  # 构建 macOS Swift Package
 ```
 
-`make backend-acceptance-smoke` 使用 FastAPI in-process client 验证状态、角色、历史空态和聊天降级链路，不启动后端进程。`make backend-runtime-smoke` 会读取 `.env`，启动真实 uvicorn 后端进程，验证 `/api/status`、`/api/personas` 和聊天历史入口，然后清理子进程。`make integration-smoke` 会读取 `.env` 并访问真实 LLM / EverMemOS 外部服务；TTS/Image provider factory smoke 只验证配置解析和 provider 实例化，不会生成音频或图片。默认测试和 `make check` 不会启动后端进程，也不会调用 provider API。
+`make backend-acceptance-smoke` 使用 FastAPI in-process client 验证状态、角色、历史空态和聊天降级链路，不启动后端进程。`make backend-runtime-smoke` 会读取 `.env`，启动真实 uvicorn 后端进程，验证 `/api/status`、`/api/personas` 和聊天历史入口，然后清理子进程。`make backend-websocket-smoke` 会启动真实 uvicorn 和真实 WebSocket 连接，验证 `Invalid JSON` 与 `service_unavailable` 错误事件契约，不触发 LLM 生成。`make integration-smoke` 会读取 `.env` 并访问真实 LLM / EverMemOS 外部服务；TTS/Image provider factory smoke 只验证配置解析和 provider 实例化，不会生成音频或图片。默认测试和 `make check` 不会启动后端进程，也不会调用 provider API。
 
 ### 二、配置环境变量
 

@@ -92,6 +92,7 @@ def test_makefile_exposes_local_quality_gate_targets():
         "integration-smoke",
         "backend-acceptance-smoke",
         "backend-runtime-smoke",
+        "backend-websocket-smoke",
         "desktop-build",
     ):
         assert f"{target}:" in text
@@ -105,3 +106,5 @@ def test_makefile_exposes_local_quality_gate_targets():
     assert "$(PYTHON) scripts/integration/backend_acceptance_smoke.py" in text
     assert "$(PYTHON) -m py_compile scripts/integration/backend_runtime_smoke.py" in text
     assert "$(PYTHON) scripts/integration/backend_runtime_smoke.py" in text
+    assert "$(PYTHON) -m py_compile scripts/integration/backend_websocket_smoke.py" in text
+    assert "$(PYTHON) scripts/integration/backend_websocket_smoke.py" in text
