@@ -54,6 +54,13 @@ jobs:
       - name: Check whitespace
         run: git diff --check
 
+      - name: Run backend smokes
+        run: |
+          make backend-acceptance-smoke
+          make backend-runtime-smoke
+          make backend-websocket-smoke
+          make backend-chat-smoke
+
   desktop:
     name: Desktop Swift build
     runs-on: macos-latest

@@ -59,6 +59,16 @@ def test_ci_workflow_runs_backend_quality_commands():
     assert "git diff --check" in run_blocks
 
 
+def test_ci_workflow_runs_backend_smoke_commands():
+    workflow = load_ci_workflow()
+    run_blocks = all_ci_run_blocks(workflow)
+
+    assert "make backend-acceptance-smoke" in run_blocks
+    assert "make backend-runtime-smoke" in run_blocks
+    assert "make backend-websocket-smoke" in run_blocks
+    assert "make backend-chat-smoke" in run_blocks
+
+
 def test_ci_workflow_builds_desktop_swift_package():
     workflow = load_ci_workflow()
     run_blocks = all_ci_run_blocks(workflow)
