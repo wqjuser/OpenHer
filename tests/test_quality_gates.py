@@ -26,6 +26,13 @@ def all_ci_run_blocks(workflow: dict[str, Any]) -> str:
     return "\n".join(run_blocks)
 
 
+def ci_step(workflow: dict[str, Any], job_name: str, step_name: str) -> dict[str, Any]:
+    for step in workflow["jobs"][job_name].get("steps", []):
+        if step.get("name") == step_name:
+            return step
+    raise AssertionError(f"CI step not found: {job_name}/{step_name}")
+
+
 def test_ci_workflow_runs_on_push_pull_request_and_manual_dispatch():
     workflow = load_ci_workflow()
 
@@ -67,6 +74,13 @@ def test_ci_workflow_runs_backend_smoke_commands():
     assert "make backend-runtime-smoke" in run_blocks
     assert "make backend-websocket-smoke" in run_blocks
     assert "make backend-chat-smoke" in run_blocks
+
+
+def test_ci_backend_smoke_commands_use_actions_python():
+    workflow = load_ci_workflow()
+    step = ci_step(workflow, "backend", "Run backend smokes")
+
+    assert step.get("env", {}).get("PYTHON") == "python"
 
 
 def test_ci_workflow_builds_desktop_swift_package():

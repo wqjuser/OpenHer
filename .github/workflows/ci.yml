@@ -55,6 +55,8 @@ jobs:
         run: git diff --check
 
       - name: Run backend smokes
+        env:
+          PYTHON: python
         run: |
           make backend-acceptance-smoke
           make backend-runtime-smoke
