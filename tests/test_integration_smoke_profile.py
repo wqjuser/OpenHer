@@ -71,10 +71,13 @@ def test_makefile_and_readme_document_integration_smoke() -> None:
     assert "make backend-acceptance-smoke" in readme
     assert "make backend-runtime-smoke" in readme
     assert "make backend-websocket-smoke" in readme
+    assert "make backend-chat-smoke" in readme
     assert "RUN_OPENHER_INTEGRATION=1" in readme
     assert "真实 uvicorn" in readme
     assert "真实 WebSocket" in readme
+    assert "真实 LLM" in readme
     assert "service_unavailable" in readme
+    assert "聊天不可用时会跳过" in readme
     assert "默认测试和 `make check` 不会启动后端进程" in readme
     assert "TTS/Image provider factory smoke" in readme
     assert "不会生成音频或图片" in readme
