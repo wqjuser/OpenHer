@@ -40,12 +40,10 @@ final class ConnectionManager {
                 appState.wsManager.connect()
             }
         } catch {
-            appState.isConnected = false
-            appState.isChatAvailable = false
-            appState.chatUnavailableReason = L10n.str(
+            appState.markBackendUnavailable(reason: L10n.str(
                 "后端未连接",
                 en: "Backend disconnected"
-            )
+            ))
             print("[Connection] Backend unreachable: \(error.localizedDescription)")
         }
     }

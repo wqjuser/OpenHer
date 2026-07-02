@@ -5,6 +5,7 @@ struct SettingsView: View {
     @EnvironmentObject var appState: AppState
     @AppStorage("serverURL") private var serverURL = "http://localhost:8000"
     @AppStorage("apiToken") private var apiToken = ""
+    @State private var isRefreshingDiagnostics = false
 
     var body: some View {
         Form {
@@ -19,6 +20,32 @@ struct SettingsView: View {
                     appState.updateServerConfig(url: serverURL, apiToken: apiToken)
                 }
                 .foregroundStyle(Paper.coral)
+            }
+
+            Section(L10n.str("配置诊断", en: "Configuration Diagnostics")) {
+                ForEach(appState.configurationDiagnostics) { diagnostic in
+                    DiagnosticRow(diagnostic: diagnostic)
+                }
+
+                HStack {
+                    Button {
+                        refreshDiagnostics()
+                    } label: {
+                        Label(
+                            L10n.str("刷新诊断", en: "Refresh Diagnostics"),
+                            systemImage: "arrow.clockwise"
+                        )
+                    }
+                    .disabled(isRefreshingDiagnostics)
+
+                    Spacer()
+
+                    if let checkedAt = appState.lastStatusCheckedAt {
+                        Text(checkedAt, style: .time)
+                            .font(Paper.tinyFont)
+                            .foregroundStyle(Paper.faint)
+                    }
+                }
             }
 
             Section(L10n.str("展示", en: "Display")) {
@@ -45,6 +72,50 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 360, height: 300)
+        .frame(width: 440, height: 520)
+        .task {
+            if appState.lastStatusCheckedAt == nil {
+                await appState.refreshBackendStatus()
+            }
+        }
+    }
+
+    private func refreshDiagnostics() {
+        isRefreshingDiagnostics = true
+        Task {
+            await appState.refreshBackendStatus()
+            isRefreshingDiagnostics = false
+        }
+    }
+}
+
+private struct DiagnosticRow: View {
+    let diagnostic: ConfigurationDiagnostic
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: diagnostic.available ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .foregroundStyle(diagnostic.available ? Paper.ink : Paper.coral)
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(diagnostic.title)
+                        .font(Paper.freqFont)
+                        .foregroundStyle(Paper.herText)
+
+                    Text(diagnostic.provider)
+                        .font(Paper.tinyFont)
+                        .foregroundStyle(Paper.faint)
+                        .lineLimit(1)
+                }
+
+                Text(diagnostic.detail)
+                    .font(Paper.tinyFont)
+                    .foregroundStyle(Paper.faint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }

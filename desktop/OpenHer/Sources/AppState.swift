@@ -9,6 +9,18 @@ enum AppPhase: Equatable {
     case conversation
 }
 
+struct ConfigurationDiagnostic: Identifiable {
+    let id: String
+    let title: String
+    let provider: String
+    let available: Bool
+    let detail: String
+
+    var systemImage: String {
+        available ? "checkmark.circle.fill" : "xmark.circle.fill"
+    }
+}
+
 /// Global application state shared across all views.
 @MainActor
 final class AppState: ObservableObject {
@@ -20,6 +32,8 @@ final class AppState: ObservableObject {
     @Published var chatUnavailableReason: String? = nil
     @Published var serverURL: String = "http://localhost:8000"
     @Published var apiToken: String = ""
+    @Published var backendStatus: BackendStatus? = nil
+    @Published var lastStatusCheckedAt: Date? = nil
 
     // MARK: - Personas
     @Published var personas: [Persona] = []
@@ -89,6 +103,64 @@ final class AppState: ObservableObject {
 
     var canSendChat: Bool {
         isConnected && isChatAvailable
+    }
+
+    var configurationDiagnostics: [ConfigurationDiagnostic] {
+        [
+            ConfigurationDiagnostic(
+                id: "backend",
+                title: L10n.str("后端", en: "Backend"),
+                provider: serverURL,
+                available: isConnected,
+                detail: isConnected
+                    ? L10n.str("后端连接正常", en: "Backend is reachable")
+                    : (chatUnavailableReason ?? L10n.str("后端未连接", en: "Backend disconnected"))
+            ),
+            llmDiagnostic,
+            ConfigurationDiagnostic(
+                id: "voice",
+                title: L10n.str("语音", en: "Voice"),
+                provider: backendStatus?.providers?.tts?.provider ?? "tts",
+                available: backendStatus?.capabilities?.voice?.available
+                    ?? backendStatus?.providers?.tts?.available
+                    ?? false,
+                detail: diagnosticDetail(
+                    capability: backendStatus?.capabilities?.voice,
+                    provider: backendStatus?.providers?.tts,
+                    ready: L10n.str("语音合成已就绪", en: "Voice synthesis is ready"),
+                    unavailable: L10n.str(
+                        "语音 provider 未配置",
+                        en: "Voice provider is not configured"
+                    )
+                )
+            ),
+            ConfigurationDiagnostic(
+                id: "image",
+                title: L10n.str("图片", en: "Image"),
+                provider: backendStatus?.providers?.image?.provider ?? "image",
+                available: backendStatus?.capabilities?.image?.available
+                    ?? backendStatus?.providers?.image?.available
+                    ?? false,
+                detail: diagnosticDetail(
+                    capability: backendStatus?.capabilities?.image,
+                    provider: backendStatus?.providers?.image,
+                    ready: L10n.str("图片生成已就绪", en: "Image generation is ready"),
+                    unavailable: L10n.str(
+                        "图片 provider 未配置",
+                        en: "Image provider is not configured"
+                    )
+                )
+            ),
+            ConfigurationDiagnostic(
+                id: "memory",
+                title: L10n.str("云记忆", en: "Cloud Memory"),
+                provider: backendStatus?.providers?.memory?.provider ?? "evermemos",
+                available: backendStatus?.capabilities?.memory?.available
+                    ?? backendStatus?.providers?.memory?.available
+                    ?? false,
+                detail: memoryDiagnosticDetail
+            ),
+        ]
     }
 
     // MARK: - Init
@@ -307,6 +379,8 @@ final class AppState: ObservableObject {
     }
 
     func updateBackendStatus(_ status: BackendStatus) {
+        backendStatus = status
+        lastStatusCheckedAt = Date()
         isConnected = status.isRunning
         if let chat = status.capabilities?.chat {
             isChatAvailable = chat.available
@@ -320,6 +394,83 @@ final class AppState: ObservableObject {
         }
         isChatAvailable = llm.available
         chatUnavailableReason = llm.available ? nil : llm.displayUnavailableReason
+    }
+
+    func markBackendUnavailable(reason: String) {
+        backendStatus = nil
+        lastStatusCheckedAt = Date()
+        isConnected = false
+        isChatAvailable = false
+        chatUnavailableReason = reason
+    }
+
+    func refreshBackendStatus() async {
+        do {
+            let status = try await apiClient.fetchBackendStatus()
+            updateBackendStatus(status)
+        } catch {
+            markBackendUnavailable(reason: L10n.str("后端未连接", en: "Backend disconnected"))
+            print("[OpenHer] Failed to refresh backend status: \(error)")
+        }
+    }
+
+    private var llmDiagnostic: ConfigurationDiagnostic {
+        ConfigurationDiagnostic(
+            id: "chat",
+            title: L10n.str("聊天", en: "Chat"),
+            provider: backendStatus?.providers?.llm?.provider ?? "llm",
+            available: backendStatus?.capabilities?.chat?.available
+                ?? backendStatus?.providers?.llm?.available
+                ?? canSendChat,
+            detail: diagnosticDetail(
+                capability: backendStatus?.capabilities?.chat,
+                provider: backendStatus?.providers?.llm,
+                ready: L10n.str("聊天已就绪", en: "Chat is ready"),
+                unavailable: L10n.str(
+                    "LLM provider 未配置",
+                    en: "LLM provider is not configured"
+                )
+            )
+        )
+    }
+
+    private var memoryDiagnosticDetail: String {
+        if let capability = backendStatus?.capabilities?.memory {
+            return capability.displayReason(
+                fallback: capability.available
+                    ? L10n.str("EverMemOS 已就绪", en: "EverMemOS is ready")
+                    : L10n.str("EverMemOS 不可用", en: "EverMemOS is unavailable")
+            )
+        }
+        guard let memory = backendStatus?.providers?.memory else {
+            return L10n.str("等待后端诊断", en: "Waiting for backend diagnostics")
+        }
+        if !memory.enabled {
+            return L10n.str("EverMemOS 已禁用", en: "EverMemOS is disabled")
+        }
+        if !memory.configured {
+            return L10n.str("EverMemOS 未配置", en: "EverMemOS is not configured")
+        }
+        return memory.available
+            ? L10n.str("EverMemOS 已就绪", en: "EverMemOS is ready")
+            : L10n.str("EverMemOS 不可用", en: "EverMemOS is unavailable")
+    }
+
+    private func diagnosticDetail(
+        capability: CapabilitySummary?,
+        provider: ProviderCapability?,
+        ready: String,
+        unavailable: String
+    ) -> String {
+        if let capability {
+            return capability.displayReason(fallback: capability.available ? ready : unavailable)
+        }
+        if let provider, !provider.available, !provider.missingKeyEnv.isEmpty {
+            return "\(unavailable): \(provider.missingKeyEnv)"
+        }
+        return (provider?.available ?? false)
+            ? ready
+            : L10n.str("等待后端诊断", en: "Waiting for backend diagnostics")
     }
 
     func sendMessage(_ text: String) {
