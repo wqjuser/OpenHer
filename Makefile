@@ -1,6 +1,6 @@
 PYTHON ?= .venv/bin/python
 
-.PHONY: install test typecheck compile check integration-smoke backend-acceptance-smoke backend-runtime-smoke backend-websocket-smoke backend-chat-smoke desktop-acceptance-smoke desktop-build
+.PHONY: install test typecheck compile check integration-smoke data-inventory data-backup data-reset backend-acceptance-smoke backend-runtime-smoke backend-websocket-smoke backend-chat-smoke desktop-acceptance-smoke desktop-build
 
 install:
 	$(PYTHON) -m pip install -r requirements-dev.txt
@@ -20,12 +20,22 @@ compile:
 	$(PYTHON) -m py_compile scripts/integration/backend_websocket_smoke.py
 	$(PYTHON) -m py_compile scripts/integration/backend_chat_smoke.py
 	$(PYTHON) -m py_compile scripts/integration/desktop_acceptance_smoke.py
+	$(PYTHON) -m py_compile scripts/data_lifecycle.py
 
 check: typecheck compile test
 	git diff --check
 
 integration-smoke:
 	RUN_OPENHER_INTEGRATION=1 $(PYTHON) scripts/integration/provider_smoke.py
+
+data-inventory:
+	$(PYTHON) scripts/data_lifecycle.py inventory
+
+data-backup:
+	$(PYTHON) scripts/data_lifecycle.py backup
+
+data-reset:
+	$(PYTHON) scripts/data_lifecycle.py reset
 
 backend-acceptance-smoke:
 	$(PYTHON) scripts/integration/backend_acceptance_smoke.py

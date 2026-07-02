@@ -353,6 +353,14 @@ IMAGE_API_KEY=your_current_image_api_key_here
 OPENHER_DATA_DIR=/absolute/path/to/openher-data
 ```
 
+本地数据生命周期命令：
+
+```bash
+make data-inventory   # 查看当前运行数据清单
+make data-backup      # 备份 .data / OPENHER_DATA_DIR 到 zip
+make data-reset       # 先备份，再清除运行态数据；保留 genesis_seed
+```
+
 ### 三、启动后端
 
 ```bash

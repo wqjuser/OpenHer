@@ -14,6 +14,7 @@ import json
 import os
 import sqlite3
 import sys
+from pathlib import Path
 
 # Add project root to path
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -21,63 +22,31 @@ sys.path.insert(0, ROOT)
 os.chdir(ROOT)
 
 from engine.genome.style_memory import ContinuousStyleMemory
+from scripts.data_lifecycle import resolve_data_dir, reset_runtime_data
 
-DATA_DIR = os.path.join(ROOT, ".data")
+DATA_DIR = str(resolve_data_dir(Path(ROOT)))
 DB_PATH = os.path.join(DATA_DIR, "openher.db")
 GENOME_DIR = os.path.join(DATA_DIR, "genome")
-
-# DBs to fully delete (no precious data)
-DELETE_DBS = ["chat.db", "memory.db", "task.db"]
-
-# Tables in openher.db to clear (user data only, NOT genesis_seed)
-CLEAR_TABLES = ["style_memory"]
-
-# Other files to clean
-CLEANUP_FILES = ["server.log"]
 
 
 def clean_data():
     """Remove runtime data while preserving genesis seeds in openher.db."""
     print("🧹 清除运行时数据...")
+    summary = reset_runtime_data(Path(DATA_DIR))
 
-    # Delete secondary DBs entirely
-    for fname in DELETE_DBS:
-        fpath = os.path.join(DATA_DIR, fname)
-        if os.path.exists(fpath):
-            os.remove(fpath)
-            print(f"  ✅ 已删除 {fname}")
-        else:
-            print(f"  ⏭️  {fname} 不存在，跳过")
+    for fname in summary["deleted_files"]:
+        print(f"  ✅ 已删除 {fname}")
+    for fname in summary["missing_files"]:
+        print(f"  ⏭️  {fname} 不存在，跳过")
+    for table in summary["cleared_tables"]:
+        print(f"  ✅ 已清空 openher.db → {table}")
 
-    # Clear user data tables in openher.db (preserve genesis_seed!)
-    if os.path.exists(DB_PATH):
-        conn = sqlite3.connect(DB_PATH)
-        for table in CLEAR_TABLES:
-            try:
-                conn.execute(f"DELETE FROM {table}")
-                print(f"  ✅ 已清空 openher.db → {table}")
-            except sqlite3.OperationalError:
-                print(f"  ⏭️  openher.db → {table} 不存在，跳过")
-        conn.commit()
-        conn.close()
-
-        # Verify seeds survived
-        conn = sqlite3.connect(DB_PATH)
-        count = conn.execute("SELECT COUNT(*) FROM genesis_seed").fetchone()[0]
-        conn.close()
-        if count > 0:
-            print(f"  🧬 genesis_seed 保留完好 ({count} 条)")
-        else:
-            print("  ⚠️  genesis_seed 为空，需要导入种子")
-    else:
+    if not os.path.exists(DB_PATH):
         print("  ⏭️  openher.db 不存在")
-
-    # Clean log files
-    for fname in CLEANUP_FILES:
-        fpath = os.path.join(DATA_DIR, fname)
-        if os.path.exists(fpath):
-            os.remove(fpath)
-            print(f"  ✅ 已删除 {fname}")
+    elif summary["genesis_seed_count"] > 0:
+        print(f"  🧬 genesis_seed 保留完好 ({summary['genesis_seed_count']} 条)")
+    else:
+        print("  ⚠️  genesis_seed 为空，需要导入种子")
 
     print()
 

@@ -115,6 +115,9 @@ def test_makefile_exposes_local_quality_gate_targets():
         "compile",
         "check",
         "integration-smoke",
+        "data-inventory",
+        "data-backup",
+        "data-reset",
         "backend-acceptance-smoke",
         "backend-runtime-smoke",
         "backend-websocket-smoke",
@@ -139,3 +142,7 @@ def test_makefile_exposes_local_quality_gate_targets():
     assert "$(PYTHON) scripts/integration/backend_chat_smoke.py" in text
     assert "$(PYTHON) -m py_compile scripts/integration/desktop_acceptance_smoke.py" in text
     assert "$(PYTHON) scripts/integration/desktop_acceptance_smoke.py" in text
+    assert "$(PYTHON) -m py_compile scripts/data_lifecycle.py" in text
+    assert "$(PYTHON) scripts/data_lifecycle.py inventory" in text
+    assert "$(PYTHON) scripts/data_lifecycle.py backup" in text
+    assert "$(PYTHON) scripts/data_lifecycle.py reset" in text

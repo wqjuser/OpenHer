@@ -91,6 +91,9 @@ def test_makefile_and_readme_document_integration_smoke() -> None:
     assert "MEMORY_BASE_URL" in env_example
     assert "OPENHER_DATA_DIR" in readme
     assert "OPENHER_DATA_DIR" in env_example
+    assert "make data-inventory" in readme
+    assert "make data-backup" in readme
+    assert "make data-reset" in readme
 
 
 async def test_llm_smoke_skips_when_provider_is_unavailable() -> None:

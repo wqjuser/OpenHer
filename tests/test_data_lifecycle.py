@@ -1,0 +1,175 @@
+"""Runtime data lifecycle command tests."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+from pathlib import Path
+import sqlite3
+import zipfile
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "data_lifecycle.py"
+
+
+def load_data_lifecycle_module():
+    assert SCRIPT.exists(), "data lifecycle script must exist"
+    spec = importlib.util.spec_from_file_location("data_lifecycle", SCRIPT)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_data_lifecycle_script_exposes_backup_reset_and_inventory_contracts():
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert "OPENHER_DATA_DIR" in source
+    assert "def resolve_data_dir" in source
+    assert "def inventory_data_dir" in source
+    assert "def backup_data_dir" in source
+    assert "def reset_runtime_data" in source
+    assert "genesis_seed" in source
+    assert "genome_state" in source
+    assert "proactive_outbox" in source
+    assert "zipfile.ZipFile" in source
+
+
+def test_resolve_data_dir_uses_env_override(monkeypatch, tmp_path):
+    lifecycle = load_data_lifecycle_module()
+
+    monkeypatch.delenv("OPENHER_DATA_DIR", raising=False)
+    assert lifecycle.resolve_data_dir(base_dir=tmp_path) == tmp_path / ".data"
+
+    monkeypatch.setenv("OPENHER_DATA_DIR", "runtime-data")
+    assert lifecycle.resolve_data_dir(base_dir=tmp_path) == tmp_path / "runtime-data"
+
+    absolute = tmp_path / "absolute-data"
+    monkeypatch.setenv("OPENHER_DATA_DIR", str(absolute))
+    assert lifecycle.resolve_data_dir(base_dir=tmp_path) == absolute
+
+
+def test_backup_data_dir_creates_zip_manifest_and_files(tmp_path):
+    lifecycle = load_data_lifecycle_module()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "openher.db").write_bytes(b"openher")
+    (data_dir / "chat.db").write_bytes(b"chat")
+    (data_dir / "genome").mkdir()
+    (data_dir / "genome" / "state.json").write_text('{"ok": true}', encoding="utf-8")
+
+    backup_path = lifecycle.backup_data_dir(
+        data_dir=data_dir,
+        backup_dir=tmp_path / "backups",
+        timestamp="20260702T010203Z",
+    )
+
+    assert backup_path.name == "openher-data-20260702T010203Z.zip"
+    with zipfile.ZipFile(backup_path) as archive:
+        names = set(archive.namelist())
+        assert "manifest.json" in names
+        assert "openher.db" in names
+        assert "chat.db" in names
+        assert "genome/state.json" in names
+        manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+
+    assert manifest["schema_version"] == 1
+    assert manifest["data_dir"] == str(data_dir)
+    assert {entry["path"] for entry in manifest["files"]} == {
+        "openher.db",
+        "chat.db",
+        "genome/state.json",
+    }
+
+
+def test_reset_runtime_data_preserves_genesis_seed_and_clears_runtime_tables(tmp_path):
+    lifecycle = load_data_lifecycle_module()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    for name in ("chat.db", "memory.db", "task.db", "server.log"):
+        (data_dir / name).write_text(name, encoding="utf-8")
+    openher_db = data_dir / "openher.db"
+    _create_openher_db(openher_db)
+
+    summary = lifecycle.reset_runtime_data(data_dir=data_dir)
+
+    assert sorted(summary["deleted_files"]) == ["chat.db", "memory.db", "server.log", "task.db"]
+    for name in ("chat.db", "memory.db", "task.db", "server.log"):
+        assert not (data_dir / name).exists()
+
+    conn = sqlite3.connect(openher_db)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM genesis_seed").fetchone()[0] == 1
+        for table in (
+            "style_memory",
+            "genome_state",
+            "chat_summary",
+            "proactive_lock",
+            "proactive_outbox",
+        ):
+            assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_reset_data_legacy_entrypoint_delegates_to_data_lifecycle_module():
+    source = (ROOT / "scripts" / "reset_data.py").read_text(encoding="utf-8")
+
+    assert "from scripts.data_lifecycle import" in source
+    assert "resolve_data_dir" in source
+    assert "reset_runtime_data" in source
+
+
+def _create_openher_db(path: Path) -> None:
+    conn = sqlite3.connect(path)
+    try:
+        conn.executescript("""
+            CREATE TABLE genesis_seed (
+                persona_id TEXT PRIMARY KEY,
+                seeds TEXT NOT NULL
+            );
+            INSERT INTO genesis_seed (persona_id, seeds) VALUES ('iris', '[]');
+
+            CREATE TABLE style_memory (id INTEGER PRIMARY KEY, content TEXT);
+            INSERT INTO style_memory (content) VALUES ('style');
+
+            CREATE TABLE genome_state (
+                user_id TEXT,
+                persona_id TEXT,
+                agent_data TEXT DEFAULT '{}',
+                metabolism_data TEXT DEFAULT '{}'
+            );
+            INSERT INTO genome_state (user_id, persona_id) VALUES ('u', 'iris');
+
+            CREATE TABLE chat_summary (
+                user_id TEXT,
+                persona_id TEXT,
+                summary TEXT
+            );
+            INSERT INTO chat_summary (user_id, persona_id, summary) VALUES ('u', 'iris', 'summary');
+
+            CREATE TABLE proactive_lock (
+                user_id TEXT,
+                persona_id TEXT,
+                owner_id TEXT,
+                acquired_at REAL,
+                expires_at REAL
+            );
+            INSERT INTO proactive_lock VALUES ('u', 'iris', 'owner', 1, 2);
+
+            CREATE TABLE proactive_outbox (
+                user_id TEXT,
+                persona_id TEXT,
+                tick_id TEXT,
+                reply TEXT,
+                modality TEXT,
+                created_at REAL,
+                status TEXT
+            );
+            INSERT INTO proactive_outbox VALUES ('u', 'iris', 'tick', 'hi', '文字', 1, 'pending');
+        """)
+        conn.commit()
+    finally:
+        conn.close()

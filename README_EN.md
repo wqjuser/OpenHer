@@ -297,6 +297,20 @@ DEFAULT_PROVIDER=gemini           # or claude, dashscope, openai, minimax, moons
 DEFAULT_MODEL=gemini-3.1-flash-lite-preview
 ```
 
+Runtime data is stored in `.data` by default. To isolate a run, CI job, or smoke test, set:
+
+```bash
+OPENHER_DATA_DIR=/absolute/path/to/openher-data
+```
+
+Local data lifecycle commands:
+
+```bash
+make data-inventory   # inspect runtime data
+make data-backup      # back up .data / OPENHER_DATA_DIR to a zip
+make data-reset       # back up first, then clear runtime data while preserving genesis_seed
+```
+
 ### 3. Start the Backend
 
 ```bash
