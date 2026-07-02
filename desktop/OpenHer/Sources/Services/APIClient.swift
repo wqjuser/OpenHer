@@ -128,9 +128,16 @@ struct BackendCapabilities: Decodable {
 struct CapabilitySummary: Decodable {
     let available: Bool
     let reason: String
+    let setupHint: String
 
     func displayReason(fallback: String) -> String {
         reason.isEmpty ? fallback : reason
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case available
+        case reason
+        case setupHint = "setup_hint"
     }
 
     var displayUnavailableReason: String {
@@ -144,6 +151,7 @@ struct ProviderCapability: Decodable {
     let provider: String
     let available: Bool
     let missingKeyEnv: String
+    let setupHint: String
 
     var displayUnavailableReason: String {
         let keyHint = missingKeyEnv.isEmpty ? "" : " (\(missingKeyEnv))"
@@ -157,6 +165,7 @@ struct ProviderCapability: Decodable {
         case provider
         case available
         case missingKeyEnv = "missing_key_env"
+        case setupHint = "setup_hint"
     }
 }
 
@@ -165,6 +174,15 @@ struct MemoryProviderCapability: Decodable {
     let enabled: Bool
     let configured: Bool
     let available: Bool
+    let setupHint: String
+
+    enum CodingKeys: String, CodingKey {
+        case provider
+        case enabled
+        case configured
+        case available
+        case setupHint = "setup_hint"
+    }
 }
 
 enum APIError: Error, LocalizedError {

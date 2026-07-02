@@ -18,6 +18,8 @@ def test_backend_status_decodes_all_configuration_diagnostics():
     assert "struct MemoryProviderCapability: Decodable" in source
     assert "let configured: Bool" in source
     assert "let enabled: Bool" in source
+    assert "let setupHint: String" in source
+    assert "setup_hint" in source
 
 
 def test_app_state_tracks_backend_diagnostics_for_settings_view():
@@ -30,6 +32,9 @@ def test_app_state_tracks_backend_diagnostics_for_settings_view():
     assert "func refreshBackendStatus() async" in source
     assert "backendStatus = status" in source
     assert "lastStatusCheckedAt = Date()" in source
+    assert "let setupHint: String" in source
+    assert "setupHint:" in source
+    assert "diagnosticSetupHint" in source
     assert 'id: "voice"' in source
     assert 'id: "image"' in source
     assert 'id: "memory"' in source
@@ -45,3 +50,4 @@ def test_settings_view_exposes_refreshable_configuration_diagnostics():
     assert "lastStatusCheckedAt" in source
     assert "xmark.circle.fill" in source
     assert "checkmark.circle.fill" in source
+    assert "diagnostic.setupHint" in source

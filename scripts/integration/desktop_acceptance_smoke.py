@@ -53,11 +53,15 @@ def check_desktop_status_body(body: dict[str, Any]) -> dict[str, str]:
     for key in ("llm", "tts", "image", "memory"):
         if key not in providers:
             raise AssertionError(f"status.providers: missing {key}")
-        _require_dict(providers.get(key), f"status.providers.{key}")
+        provider = _require_dict(providers.get(key), f"status.providers.{key}")
+        if not isinstance(provider.get("setup_hint"), str):
+            raise AssertionError(f"status.providers.{key}.setup_hint must be a string")
     for key in ("chat", "voice", "image", "memory"):
         if key not in capabilities:
             raise AssertionError(f"status.capabilities: missing {key}")
-        _require_dict(capabilities.get(key), f"status.capabilities.{key}")
+        capability = _require_dict(capabilities.get(key), f"status.capabilities.{key}")
+        if not isinstance(capability.get("setup_hint"), str):
+            raise AssertionError(f"status.capabilities.{key}.setup_hint must be a string")
 
     for key in ("chat", "voice", "image", "memory"):
         capability = _require_dict(capabilities.get(key), f"status.capabilities.{key}")

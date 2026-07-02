@@ -29,6 +29,7 @@ def test_desktop_acceptance_smoke_exposes_startup_and_chat_flow_checks():
     assert "OPENHER_DATA_DIR" in source
     assert "OPENHER_API_TOKEN" in source
     assert "def check_desktop_status_body" in source
+    assert '"setup_hint"' in source
     assert "def check_desktop_personas_body" in source
     assert "def check_desktop_history_body" in source
     assert "async def check_desktop_websocket_chat" in source
@@ -57,16 +58,37 @@ def test_desktop_status_body_requires_settings_diagnostic_contract():
     result = smoke.check_desktop_status_body({
         "status": "running",
         "providers": {
-            "llm": {"provider": "deepseek", "available": True, "missing_key_env": ""},
-            "tts": {"provider": "dashscope", "available": False, "missing_key_env": "DASHSCOPE_API_KEY"},
-            "image": {"provider": "gemini", "available": True, "missing_key_env": ""},
-            "memory": {"provider": "evermemos", "enabled": True, "configured": True, "available": False},
+            "llm": {"provider": "deepseek", "available": True, "missing_key_env": "", "setup_hint": ""},
+            "tts": {
+                "provider": "dashscope",
+                "available": False,
+                "missing_key_env": "DASHSCOPE_API_KEY",
+                "setup_hint": "Set DASHSCOPE_API_KEY in .env, then restart the backend.",
+            },
+            "image": {"provider": "gemini", "available": True, "missing_key_env": "", "setup_hint": ""},
+            "memory": {
+                "provider": "evermemos",
+                "enabled": True,
+                "configured": True,
+                "available": False,
+                "setup_hint": "Check EverMemOS credentials or network connectivity, then restart the backend.",
+            },
         },
         "capabilities": {
-            "chat": {"available": True, "reason": "", "requires": ["llm"]},
-            "voice": {"available": False, "reason": "TTS missing", "requires": ["tts"]},
-            "image": {"available": True, "reason": "", "requires": ["image"]},
-            "memory": {"available": False, "reason": "EverMemOS unavailable", "requires": ["memory"]},
+            "chat": {"available": True, "reason": "", "requires": ["llm"], "setup_hint": ""},
+            "voice": {
+                "available": False,
+                "reason": "TTS missing",
+                "requires": ["tts"],
+                "setup_hint": "Set DASHSCOPE_API_KEY in .env, then restart the backend.",
+            },
+            "image": {"available": True, "reason": "", "requires": ["image"], "setup_hint": ""},
+            "memory": {
+                "available": False,
+                "reason": "EverMemOS unavailable",
+                "requires": ["memory"],
+                "setup_hint": "Check EverMemOS credentials or network connectivity, then restart the backend.",
+            },
         },
     })
 
@@ -86,15 +108,21 @@ def test_desktop_status_body_rejects_missing_capability():
         smoke.check_desktop_status_body({
             "status": "running",
             "providers": {
-                "llm": {"provider": "deepseek", "available": True, "missing_key_env": ""},
-                "tts": {"provider": "dashscope", "available": True, "missing_key_env": ""},
-                "image": {"provider": "gemini", "available": True, "missing_key_env": ""},
-                "memory": {"provider": "evermemos", "enabled": True, "configured": True, "available": True},
+                "llm": {"provider": "deepseek", "available": True, "missing_key_env": "", "setup_hint": ""},
+                "tts": {"provider": "dashscope", "available": True, "missing_key_env": "", "setup_hint": ""},
+                "image": {"provider": "gemini", "available": True, "missing_key_env": "", "setup_hint": ""},
+                "memory": {
+                    "provider": "evermemos",
+                    "enabled": True,
+                    "configured": True,
+                    "available": True,
+                    "setup_hint": "",
+                },
             },
             "capabilities": {
-                "chat": {"available": True, "reason": "", "requires": ["llm"]},
-                "voice": {"available": True, "reason": "", "requires": ["tts"]},
-                "image": {"available": True, "reason": "", "requires": ["image"]},
+                "chat": {"available": True, "reason": "", "requires": ["llm"], "setup_hint": ""},
+                "voice": {"available": True, "reason": "", "requires": ["tts"], "setup_hint": ""},
+                "image": {"available": True, "reason": "", "requires": ["image"], "setup_hint": ""},
             },
         })
     except AssertionError as exc:

@@ -15,6 +15,7 @@ struct ConfigurationDiagnostic: Identifiable {
     let provider: String
     let available: Bool
     let detail: String
+    let setupHint: String
 
     var systemImage: String {
         available ? "checkmark.circle.fill" : "xmark.circle.fill"
@@ -114,7 +115,10 @@ final class AppState: ObservableObject {
                 available: isConnected,
                 detail: isConnected
                     ? L10n.str("后端连接正常", en: "Backend is reachable")
-                    : (chatUnavailableReason ?? L10n.str("后端未连接", en: "Backend disconnected"))
+                    : (chatUnavailableReason ?? L10n.str("后端未连接", en: "Backend disconnected")),
+                setupHint: isConnected
+                    ? ""
+                    : L10n.str("启动后端服务后刷新诊断", en: "Start the backend, then refresh diagnostics")
             ),
             llmDiagnostic,
             ConfigurationDiagnostic(
@@ -132,6 +136,10 @@ final class AppState: ObservableObject {
                         "语音 provider 未配置",
                         en: "Voice provider is not configured"
                     )
+                ),
+                setupHint: diagnosticSetupHint(
+                    capability: backendStatus?.capabilities?.voice,
+                    provider: backendStatus?.providers?.tts
                 )
             ),
             ConfigurationDiagnostic(
@@ -149,6 +157,10 @@ final class AppState: ObservableObject {
                         "图片 provider 未配置",
                         en: "Image provider is not configured"
                     )
+                ),
+                setupHint: diagnosticSetupHint(
+                    capability: backendStatus?.capabilities?.image,
+                    provider: backendStatus?.providers?.image
                 )
             ),
             ConfigurationDiagnostic(
@@ -158,7 +170,8 @@ final class AppState: ObservableObject {
                 available: backendStatus?.capabilities?.memory?.available
                     ?? backendStatus?.providers?.memory?.available
                     ?? false,
-                detail: memoryDiagnosticDetail
+                detail: memoryDiagnosticDetail,
+                setupHint: memoryDiagnosticSetupHint
             ),
         ]
     }
@@ -430,6 +443,10 @@ final class AppState: ObservableObject {
                     "LLM provider 未配置",
                     en: "LLM provider is not configured"
                 )
+            ),
+            setupHint: diagnosticSetupHint(
+                capability: backendStatus?.capabilities?.chat,
+                provider: backendStatus?.providers?.llm
             )
         )
     }
@@ -456,6 +473,13 @@ final class AppState: ObservableObject {
             : L10n.str("EverMemOS 不可用", en: "EverMemOS is unavailable")
     }
 
+    private var memoryDiagnosticSetupHint: String {
+        if let capability = backendStatus?.capabilities?.memory, !capability.setupHint.isEmpty {
+            return capability.setupHint
+        }
+        return backendStatus?.providers?.memory?.setupHint ?? ""
+    }
+
     private func diagnosticDetail(
         capability: CapabilitySummary?,
         provider: ProviderCapability?,
@@ -471,6 +495,16 @@ final class AppState: ObservableObject {
         return (provider?.available ?? false)
             ? ready
             : L10n.str("等待后端诊断", en: "Waiting for backend diagnostics")
+    }
+
+    private func diagnosticSetupHint(
+        capability: CapabilitySummary?,
+        provider: ProviderCapability?
+    ) -> String {
+        if let capability, !capability.setupHint.isEmpty {
+            return capability.setupHint
+        }
+        return provider?.setupHint ?? ""
     }
 
     func sendMessage(_ text: String) {

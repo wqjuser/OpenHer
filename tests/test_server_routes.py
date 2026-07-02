@@ -89,22 +89,26 @@ def test_api_status_reports_provider_readiness_without_secrets():
             "provider": "deepseek",
             "available": False,
             "missing_key_env": "DEEPSEEK_API_KEY or LLM_API_KEY",
+            "setup_hint": "Set DEEPSEEK_API_KEY or LLM_API_KEY in .env, then restart the backend.",
         },
         "tts": {
             "provider": "dashscope",
             "available": False,
             "missing_key_env": "DASHSCOPE_API_KEY or TTS_API_KEY",
+            "setup_hint": "Set DASHSCOPE_API_KEY or TTS_API_KEY in .env, then restart the backend.",
         },
         "image": {
             "provider": "gemini",
             "available": True,
             "missing_key_env": "",
+            "setup_hint": "",
         },
         "memory": {
             "provider": "evermemos",
             "enabled": True,
             "configured": True,
             "available": False,
+            "setup_hint": "Check EverMemOS credentials or network connectivity, then restart the backend.",
         },
     }
     assert body["capabilities"] == {
@@ -112,21 +116,25 @@ def test_api_status_reports_provider_readiness_without_secrets():
             "available": False,
             "reason": "LLM provider is not configured (missing DEEPSEEK_API_KEY or LLM_API_KEY)",
             "requires": ["llm"],
+            "setup_hint": "Set DEEPSEEK_API_KEY or LLM_API_KEY in .env, then restart the backend.",
         },
         "voice": {
             "available": False,
             "reason": "TTS provider is not configured (missing DASHSCOPE_API_KEY or TTS_API_KEY)",
             "requires": ["tts"],
+            "setup_hint": "Set DASHSCOPE_API_KEY or TTS_API_KEY in .env, then restart the backend.",
         },
         "image": {
             "available": True,
             "reason": "",
             "requires": ["image"],
+            "setup_hint": "",
         },
         "memory": {
             "available": False,
             "reason": "EverMemOS is not available",
             "requires": ["memory"],
+            "setup_hint": "Check EverMemOS credentials or network connectivity, then restart the backend.",
         },
     }
     assert "secret" not in response.text

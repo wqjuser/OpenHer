@@ -115,6 +115,13 @@ private struct DiagnosticRow: View {
                     .font(Paper.tinyFont)
                     .foregroundStyle(Paper.faint)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if !diagnostic.setupHint.isEmpty {
+                    Text(diagnostic.setupHint)
+                        .font(Paper.tinyFont)
+                        .foregroundStyle(Paper.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
