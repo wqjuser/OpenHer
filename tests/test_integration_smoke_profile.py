@@ -93,6 +93,8 @@ def test_makefile_and_readme_document_integration_smoke() -> None:
     assert "OPENHER_DATA_DIR" in env_example
     assert "make data-inventory" in readme
     assert "make data-backup" in readme
+    assert "make data-verify" in readme
+    assert "make data-restore" in readme
     assert "make data-reset" in readme
 
 

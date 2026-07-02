@@ -308,8 +308,12 @@ Local data lifecycle commands:
 ```bash
 make data-inventory   # inspect runtime data
 make data-backup      # back up .data / OPENHER_DATA_DIR to a zip
+make data-verify BACKUP=/path/to/openher-data.zip
+make data-restore BACKUP=/path/to/openher-data.zip ARGS=--overwrite
 make data-reset       # back up first, then clear runtime data while preserving genesis_seed
 ```
+
+`data-restore` refuses to write into a non-empty data directory by default. Pass `ARGS=--overwrite` only when replacing current runtime data is intentional; the command creates a pre-restore backup first.
 
 ### 3. Start the Backend
 

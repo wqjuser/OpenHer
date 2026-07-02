@@ -358,8 +358,12 @@ OPENHER_DATA_DIR=/absolute/path/to/openher-data
 ```bash
 make data-inventory   # 查看当前运行数据清单
 make data-backup      # 备份 .data / OPENHER_DATA_DIR 到 zip
+make data-verify BACKUP=/path/to/openher-data.zip
+make data-restore BACKUP=/path/to/openher-data.zip ARGS=--overwrite
 make data-reset       # 先备份，再清除运行态数据；保留 genesis_seed
 ```
+
+`data-restore` 默认拒绝写入非空数据目录；确认要替换当前运行数据时再传 `ARGS=--overwrite`，并会先创建一份预恢复备份。
 
 ### 三、启动后端
 

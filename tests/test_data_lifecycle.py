@@ -8,6 +8,8 @@ from pathlib import Path
 import sqlite3
 import zipfile
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "data_lifecycle.py"
@@ -30,6 +32,8 @@ def test_data_lifecycle_script_exposes_backup_reset_and_inventory_contracts():
     assert "def resolve_data_dir" in source
     assert "def inventory_data_dir" in source
     assert "def backup_data_dir" in source
+    assert "def verify_backup_archive" in source
+    assert "def restore_data_backup" in source
     assert "def reset_runtime_data" in source
     assert "genesis_seed" in source
     assert "genome_state" in source
@@ -82,6 +86,103 @@ def test_backup_data_dir_creates_zip_manifest_and_files(tmp_path):
         "chat.db",
         "genome/state.json",
     }
+
+
+def test_verify_backup_archive_accepts_manifested_files(tmp_path):
+    lifecycle = load_data_lifecycle_module()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "openher.db").write_bytes(b"openher")
+    (data_dir / "chat.db").write_bytes(b"chat")
+
+    backup_path = lifecycle.backup_data_dir(
+        data_dir=data_dir,
+        backup_dir=tmp_path / "backups",
+        timestamp="20260702T020304Z",
+    )
+
+    result = lifecycle.verify_backup_archive(backup_path)
+
+    assert result["valid"] is True
+    assert result["errors"] == []
+    assert result["manifest"]["schema_version"] == 1
+    assert {entry["path"] for entry in result["manifest"]["files"]} == {"openher.db", "chat.db"}
+
+
+@pytest.mark.parametrize("unsafe_path", ["../evil.txt", "/evil.txt", "C:/evil.txt", "folder\\evil.txt"])
+def test_verify_backup_archive_rejects_unsafe_manifest_paths(tmp_path, unsafe_path):
+    lifecycle = load_data_lifecycle_module()
+    backup_path = tmp_path / "unsafe.zip"
+    manifest = {
+        "schema_version": 1,
+        "created_at": "20260702T020304Z",
+        "data_dir": str(tmp_path / "data"),
+        "files": [{"path": unsafe_path, "size": 4}],
+    }
+    with zipfile.ZipFile(backup_path, mode="w") as archive:
+        archive.writestr("manifest.json", json.dumps(manifest))
+        archive.writestr(unsafe_path, b"evil")
+
+    result = lifecycle.verify_backup_archive(backup_path)
+
+    assert result["valid"] is False
+    assert any("unsafe path" in error for error in result["errors"])
+
+
+def test_restore_data_backup_refuses_non_empty_target_without_overwrite(tmp_path):
+    lifecycle = load_data_lifecycle_module()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "openher.db").write_bytes(b"openher")
+    backup_path = lifecycle.backup_data_dir(
+        data_dir=data_dir,
+        backup_dir=tmp_path / "backups",
+        timestamp="20260702T020304Z",
+    )
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    (target_dir / "existing.txt").write_text("existing", encoding="utf-8")
+
+    with pytest.raises(FileExistsError, match="not empty"):
+        lifecycle.restore_data_backup(backup_path, target_dir)
+
+
+def test_restore_data_backup_restores_files_and_preserves_pre_restore_backup(tmp_path):
+    lifecycle = load_data_lifecycle_module()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "openher.db").write_bytes(b"openher")
+    (data_dir / "chat.db").write_bytes(b"chat")
+    (data_dir / "genome").mkdir()
+    (data_dir / "genome" / "state.json").write_text('{"ok": true}', encoding="utf-8")
+    backup_path = lifecycle.backup_data_dir(
+        data_dir=data_dir,
+        backup_dir=tmp_path / "backups",
+        timestamp="20260702T020304Z",
+    )
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    (target_dir / "stale.txt").write_text("stale", encoding="utf-8")
+    (target_dir / "openher.db").write_bytes(b"old-openher")
+
+    result = lifecycle.restore_data_backup(
+        backup_path=backup_path,
+        data_dir=target_dir,
+        overwrite=True,
+        backup_dir=tmp_path / "pre-restore-backups",
+    )
+
+    assert sorted(result["restored_files"]) == ["chat.db", "genome/state.json", "openher.db"]
+    assert sorted(result["deleted_files"]) == ["openher.db", "stale.txt"]
+    assert (target_dir / "openher.db").read_bytes() == b"openher"
+    assert (target_dir / "chat.db").read_bytes() == b"chat"
+    assert (target_dir / "genome" / "state.json").read_text(encoding="utf-8") == '{"ok": true}'
+    assert not (target_dir / "stale.txt").exists()
+
+    pre_restore_backup = Path(result["pre_restore_backup_path"])
+    assert pre_restore_backup.exists()
+    with zipfile.ZipFile(pre_restore_backup) as archive:
+        assert "stale.txt" in archive.namelist()
 
 
 def test_reset_runtime_data_preserves_genesis_seed_and_clears_runtime_tables(tmp_path):

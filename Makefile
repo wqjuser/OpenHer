@@ -1,6 +1,6 @@
 PYTHON ?= .venv/bin/python
 
-.PHONY: install test typecheck compile check integration-smoke data-inventory data-backup data-reset backend-acceptance-smoke backend-runtime-smoke backend-websocket-smoke backend-chat-smoke desktop-acceptance-smoke desktop-build
+.PHONY: install test typecheck compile check integration-smoke data-inventory data-backup data-verify data-restore data-reset backend-acceptance-smoke backend-runtime-smoke backend-websocket-smoke backend-chat-smoke desktop-acceptance-smoke desktop-build
 
 install:
 	$(PYTHON) -m pip install -r requirements-dev.txt
@@ -33,6 +33,14 @@ data-inventory:
 
 data-backup:
 	$(PYTHON) scripts/data_lifecycle.py backup
+
+data-verify:
+	@if [ -z "$(BACKUP)" ]; then echo "Usage: make data-verify BACKUP=/path/to/openher-data.zip"; exit 2; fi
+	$(PYTHON) scripts/data_lifecycle.py verify "$(BACKUP)"
+
+data-restore:
+	@if [ -z "$(BACKUP)" ]; then echo "Usage: make data-restore BACKUP=/path/to/openher-data.zip ARGS=--overwrite"; exit 2; fi
+	$(PYTHON) scripts/data_lifecycle.py restore "$(BACKUP)" $(ARGS)
 
 data-reset:
 	$(PYTHON) scripts/data_lifecycle.py reset
