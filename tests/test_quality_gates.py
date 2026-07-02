@@ -74,6 +74,7 @@ def test_ci_workflow_runs_backend_smoke_commands():
     assert "make backend-runtime-smoke" in run_blocks
     assert "make backend-websocket-smoke" in run_blocks
     assert "make backend-chat-smoke" in run_blocks
+    assert "make desktop-acceptance-smoke" in run_blocks
 
 
 def test_ci_backend_smoke_commands_use_actions_python():
@@ -118,6 +119,7 @@ def test_makefile_exposes_local_quality_gate_targets():
         "backend-runtime-smoke",
         "backend-websocket-smoke",
         "backend-chat-smoke",
+        "desktop-acceptance-smoke",
         "desktop-build",
     ):
         assert f"{target}:" in text
@@ -135,3 +137,5 @@ def test_makefile_exposes_local_quality_gate_targets():
     assert "$(PYTHON) scripts/integration/backend_websocket_smoke.py" in text
     assert "$(PYTHON) -m py_compile scripts/integration/backend_chat_smoke.py" in text
     assert "$(PYTHON) scripts/integration/backend_chat_smoke.py" in text
+    assert "$(PYTHON) -m py_compile scripts/integration/desktop_acceptance_smoke.py" in text
+    assert "$(PYTHON) scripts/integration/desktop_acceptance_smoke.py" in text

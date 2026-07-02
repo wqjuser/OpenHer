@@ -62,6 +62,7 @@ jobs:
           make backend-runtime-smoke
           make backend-websocket-smoke
           make backend-chat-smoke
+          make desktop-acceptance-smoke
 
   desktop:
     name: Desktop Swift build

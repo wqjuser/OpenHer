@@ -1,6 +1,6 @@
 PYTHON ?= .venv/bin/python
 
-.PHONY: install test typecheck compile check integration-smoke backend-acceptance-smoke backend-runtime-smoke backend-websocket-smoke backend-chat-smoke desktop-build
+.PHONY: install test typecheck compile check integration-smoke backend-acceptance-smoke backend-runtime-smoke backend-websocket-smoke backend-chat-smoke desktop-acceptance-smoke desktop-build
 
 install:
 	$(PYTHON) -m pip install -r requirements-dev.txt
@@ -19,6 +19,7 @@ compile:
 	$(PYTHON) -m py_compile scripts/integration/backend_runtime_smoke.py
 	$(PYTHON) -m py_compile scripts/integration/backend_websocket_smoke.py
 	$(PYTHON) -m py_compile scripts/integration/backend_chat_smoke.py
+	$(PYTHON) -m py_compile scripts/integration/desktop_acceptance_smoke.py
 
 check: typecheck compile test
 	git diff --check
@@ -37,6 +38,9 @@ backend-websocket-smoke:
 
 backend-chat-smoke:
 	$(PYTHON) scripts/integration/backend_chat_smoke.py
+
+desktop-acceptance-smoke:
+	$(PYTHON) scripts/integration/desktop_acceptance_smoke.py
 
 desktop-build:
 	cd desktop/OpenHer && swift build
