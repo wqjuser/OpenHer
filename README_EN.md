@@ -275,12 +275,13 @@ cp .env.example .env
 
 ```bash
 make doctor         # local config/data diagnostics; does not call external providers
+make doctor-strict  # strict local diagnostics; warnings exit non-zero
 make check          # pyright + compileall + pytest + whitespace check
 make integration-smoke  # opt-in live LLM/EverMemOS + TTS/Image provider factory smoke
 make desktop-build  # build the macOS Swift Package
 ```
 
-`make doctor` reads `.env` and checks LLM/TTS/Image/EverMemOS configuration, runtime data, and the latest backup archive without calling external providers or printing secret values.
+`make doctor` reads `.env` and checks LLM/TTS/Image/EverMemOS configuration, runtime data, and the latest backup archive without calling external providers or printing secret values. It prints setup hints for each warning or error. Normal doctor exits non-zero only for errors; `make doctor-strict` also exits non-zero for warnings.
 
 ### 2. Configure Environment
 

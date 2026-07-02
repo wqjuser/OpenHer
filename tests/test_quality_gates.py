@@ -115,6 +115,7 @@ def test_makefile_exposes_local_quality_gate_targets():
         "compile",
         "check",
         "doctor",
+        "doctor-strict",
         "integration-smoke",
         "data-inventory",
         "data-backup",
@@ -148,6 +149,7 @@ def test_makefile_exposes_local_quality_gate_targets():
     assert "$(PYTHON) -m py_compile scripts/data_lifecycle.py" in text
     assert "$(PYTHON) -m py_compile scripts/doctor.py" in text
     assert "$(PYTHON) scripts/doctor.py --pretty" in text
+    assert "$(PYTHON) scripts/doctor.py --pretty --strict" in text
     assert "$(PYTHON) scripts/data_lifecycle.py inventory" in text
     assert "$(PYTHON) scripts/data_lifecycle.py backup" in text
     assert "$(PYTHON) scripts/data_lifecycle.py verify" in text

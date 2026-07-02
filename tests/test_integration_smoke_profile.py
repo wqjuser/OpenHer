@@ -68,7 +68,9 @@ def test_makefile_and_readme_document_integration_smoke() -> None:
     assert "RUN_OPENHER_INTEGRATION=1" in makefile
     assert "scripts/integration/provider_smoke.py" in makefile
     assert "make doctor" in readme
+    assert "make doctor-strict" in readme
     assert "不会调用外部 provider" in readme
+    assert "warning 也返回非零" in readme
     assert "make integration-smoke" in readme
     assert "make backend-acceptance-smoke" in readme
     assert "make backend-runtime-smoke" in readme

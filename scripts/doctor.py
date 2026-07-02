@@ -61,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-dir", default="", help="Runtime data dir; defaults to OPENHER_DATA_DIR or .data.")
     parser.add_argument("--backup", default="", help="Backup archive to verify.")
     parser.add_argument("--no-env", action="store_true", help="Do not load .env before checking config.")
+    parser.add_argument("--strict", action="store_true", help="Exit non-zero for warnings as well as errors.")
 
     args = parser.parse_args(argv)
     report = build_doctor_report(
@@ -73,7 +74,11 @@ def main(argv: list[str] | None = None) -> int:
         print(_format_pretty(report))
     else:
         print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
-    return 1 if report["status"] == "error" else 0
+    if report["status"] == "error":
+        return 1
+    if args.strict and report["status"] == "warn":
+        return 1
+    return 0
 
 
 def _llm_check(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -82,9 +87,15 @@ def _llm_check(cfg: dict[str, Any]) -> dict[str, Any]:
     missing = str(cfg.get("missing_key_env") or "")
     status = "ok" if available else "error"
     message = "LLM provider is configured" if available else f"Missing required LLM key: {missing}"
+    hint = (
+        "No action needed."
+        if available
+        else f"Set {missing} in .env, or switch DEFAULT_PROVIDER to a provider that is configured."
+    )
     return _check(
         status,
         message,
+        hint,
         {
             "provider": str(cfg.get("provider") or ""),
             "model": str(cfg.get("model") or ""),
@@ -105,6 +116,11 @@ def _optional_provider_check(label: str, cfg: dict[str, Any]) -> dict[str, Any]:
         if available
         else f"{label} provider is optional but not configured: {missing}"
     )
+    hint = (
+        "No action needed."
+        if available
+        else f"optional: set {missing} in .env if you need {label.lower()} features."
+    )
     details = {
         "provider": str(cfg.get("provider") or ""),
         "api_key_configured": configured,
@@ -113,7 +129,7 @@ def _optional_provider_check(label: str, cfg: dict[str, Any]) -> dict[str, Any]:
     model = str(cfg.get("model") or cfg.get("minimax_model") or "")
     if model:
         details["model"] = model
-    return _check(status, message, details)
+    return _check(status, message, hint, details)
 
 
 def _memory_check(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -124,6 +140,7 @@ def _memory_check(cfg: dict[str, Any]) -> dict[str, Any]:
         return _check(
             "ok",
             "EverMemOS memory is optional and disabled",
+            "optional: set EVERMEMOS_API_KEY for cloud memory, or MEMORY_BASE_URL for a local gateway.",
             {
                 "enabled": False,
                 "api_key_configured": False,
@@ -134,9 +151,11 @@ def _memory_check(cfg: dict[str, Any]) -> dict[str, Any]:
 
     status = "ok" if base_url else "warn"
     message = "EverMemOS memory is configured" if base_url else "EverMemOS memory is enabled without a base URL"
+    hint = "No action needed." if base_url else "Set EVERMEMOS_BASE_URL or MEMORY_BASE_URL in .env."
     return _check(
         status,
         message,
+        hint,
         {
             "enabled": True,
             "api_key_configured": configured,
@@ -153,6 +172,7 @@ def _data_check(inventory: dict[str, Any]) -> dict[str, Any]:
     return _check(
         "ok" if exists else "warn",
         "Runtime data directory exists" if exists else "Runtime data directory does not exist yet",
+        "No action needed." if exists else "Start the backend once or set OPENHER_DATA_DIR to an existing directory.",
         {
             "data_dir": str(inventory.get("data_dir") or ""),
             "exists": exists,
@@ -168,6 +188,7 @@ def _backup_check(data_dir: Path, backup_path: Path | str | None, verifier: Any)
         return _check(
             "warn",
             "No runtime data backup archive found",
+            "Run make data-backup after important local sessions.",
             {
                 "backup_path": "",
                 "valid": False,
@@ -180,6 +201,7 @@ def _backup_check(data_dir: Path, backup_path: Path | str | None, verifier: Any)
     return _check(
         "ok" if valid else "error",
         "Latest runtime data backup is valid" if valid else "Runtime data backup is invalid",
+        "No action needed." if valid else "Create a fresh backup with make data-backup and verify it with make data-verify.",
         {
             "backup_path": str(archive_path),
             "valid": valid,
@@ -206,10 +228,11 @@ def _has_secret(cfg: dict[str, Any], active: bool = False) -> bool:
     return bool(cfg.get(key))
 
 
-def _check(status: str, message: str, details: dict[str, Any]) -> dict[str, Any]:
+def _check(status: str, message: str, setup_hint: str, details: dict[str, Any]) -> dict[str, Any]:
     return {
         "status": status,
         "message": message,
+        "setup_hint": setup_hint,
         "details": details,
     }
 
@@ -241,7 +264,10 @@ def _format_pretty(report: dict[str, Any]) -> str:
                 continue
             status = str(check.get("status") or "error")
             message = str(check.get("message") or "")
+            setup_hint = str(check.get("setup_hint") or "")
             lines.append(f"- {name}: {status} - {message}")
+            if setup_hint:
+                lines.append(f"  hint: {setup_hint}")
     return "\n".join(lines)
 
 

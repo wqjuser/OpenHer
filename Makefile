@@ -1,6 +1,6 @@
 PYTHON ?= .venv/bin/python
 
-.PHONY: install test typecheck compile check doctor integration-smoke data-inventory data-backup data-verify data-restore data-reset backend-acceptance-smoke backend-runtime-smoke backend-websocket-smoke backend-chat-smoke desktop-acceptance-smoke desktop-build
+.PHONY: install test typecheck compile check doctor doctor-strict integration-smoke data-inventory data-backup data-verify data-restore data-reset backend-acceptance-smoke backend-runtime-smoke backend-websocket-smoke backend-chat-smoke desktop-acceptance-smoke desktop-build
 
 install:
 	$(PYTHON) -m pip install -r requirements-dev.txt
@@ -28,6 +28,9 @@ check: typecheck compile test
 
 doctor:
 	$(PYTHON) scripts/doctor.py --pretty $(ARGS)
+
+doctor-strict:
+	$(PYTHON) scripts/doctor.py --pretty --strict $(ARGS)
 
 integration-smoke:
 	RUN_OPENHER_INTEGRATION=1 $(PYTHON) scripts/integration/provider_smoke.py
