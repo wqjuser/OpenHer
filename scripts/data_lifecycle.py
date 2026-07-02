@@ -58,10 +58,15 @@ def inventory_data_dir(data_dir: Path | str) -> dict[str, Any]:
     }
     openher_db = root / "openher.db"
     if openher_db.exists():
-        inventory["sqlite"]["openher.db"] = _sqlite_table_counts(
-            openher_db,
-            ("genesis_seed", *OPENHER_RUNTIME_TABLES),
-        )
+        try:
+            inventory["sqlite"]["openher.db"] = _sqlite_table_counts(
+                openher_db,
+                ("genesis_seed", *OPENHER_RUNTIME_TABLES),
+            )
+        except sqlite3.DatabaseError as exc:
+            inventory["sqlite"]["openher.db"] = {
+                "error": f"SQLite inventory failed: {exc}",
+            }
     return inventory
 
 

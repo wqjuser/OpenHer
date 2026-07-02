@@ -169,16 +169,28 @@ def _data_check(inventory: dict[str, Any]) -> dict[str, Any]:
     exists = bool(inventory.get("exists", False))
     files = inventory.get("files", [])
     sqlite = inventory.get("sqlite", {})
+    details = {
+        "data_dir": str(inventory.get("data_dir") or ""),
+        "exists": exists,
+        "file_count": len(files) if isinstance(files, list) else 0,
+        "sqlite": sqlite if isinstance(sqlite, dict) else {},
+    }
+    openher_db = sqlite.get("openher.db") if isinstance(sqlite, dict) else {}
+    sqlite_error = ""
+    if isinstance(openher_db, dict):
+        sqlite_error = str(openher_db.get("error") or "")
+    if sqlite_error:
+        return _check(
+            "error",
+            "Runtime data SQLite inventory failed",
+            "Back up .data if possible, inspect openher.db, or run make data-reset after backing up.",
+            details,
+        )
     return _check(
         "ok" if exists else "warn",
         "Runtime data directory exists" if exists else "Runtime data directory does not exist yet",
         "No action needed." if exists else "Start the backend once or set OPENHER_DATA_DIR to an existing directory.",
-        {
-            "data_dir": str(inventory.get("data_dir") or ""),
-            "exists": exists,
-            "file_count": len(files) if isinstance(files, list) else 0,
-            "sqlite": sqlite if isinstance(sqlite, dict) else {},
-        },
+        details,
     )
 
 

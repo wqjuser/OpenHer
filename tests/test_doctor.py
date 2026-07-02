@@ -125,6 +125,23 @@ def test_doctor_report_includes_runtime_data_inventory_and_backup_verification(m
     assert report["checks"]["backup"]["setup_hint"] == "No action needed."
 
 
+def test_doctor_report_marks_corrupt_openher_db_as_data_error(monkeypatch, tmp_path):
+    doctor = load_doctor_module()
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setenv("DEFAULT_PROVIDER", "ollama")
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "openher.db").write_bytes(b"not sqlite")
+
+    report = doctor.build_doctor_report(base_dir=ROOT, data_dir=data_dir, load_env=False)
+
+    assert report["status"] == "error"
+    assert report["checks"]["data"]["status"] == "error"
+    assert "SQLite inventory failed" in report["checks"]["data"]["message"]
+    assert "make data-reset" in report["checks"]["data"]["setup_hint"]
+    assert report["checks"]["data"]["details"]["sqlite"]["openher.db"]["error"]
+
+
 def test_doctor_report_marks_invalid_backup_as_error(monkeypatch, tmp_path):
     doctor = load_doctor_module()
     _clear_provider_env(monkeypatch)

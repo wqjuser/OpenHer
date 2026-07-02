@@ -109,6 +109,20 @@ def test_verify_backup_archive_accepts_manifested_files(tmp_path):
     assert {entry["path"] for entry in result["manifest"]["files"]} == {"openher.db", "chat.db"}
 
 
+def test_inventory_data_dir_reports_corrupt_openher_db_without_raising(tmp_path):
+    lifecycle = load_data_lifecycle_module()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "openher.db").write_bytes(b"not sqlite")
+
+    inventory = lifecycle.inventory_data_dir(data_dir)
+
+    sqlite_inventory = inventory["sqlite"]["openher.db"]
+    assert inventory["exists"] is True
+    assert sqlite_inventory["error"]
+    assert "file is not a database" in sqlite_inventory["error"]
+
+
 @pytest.mark.parametrize("unsafe_path", ["../evil.txt", "/evil.txt", "C:/evil.txt", "folder\\evil.txt"])
 def test_verify_backup_archive_rejects_unsafe_manifest_paths(tmp_path, unsafe_path):
     lifecycle = load_data_lifecycle_module()
