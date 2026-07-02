@@ -6,6 +6,8 @@ import importlib.util
 import json
 from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 import zipfile
 
 import pytest
@@ -229,12 +231,62 @@ def test_reset_runtime_data_preserves_genesis_seed_and_clears_runtime_tables(tmp
         conn.close()
 
 
+def test_reset_runtime_data_reports_corrupt_openher_db_without_raising(tmp_path):
+    lifecycle = load_data_lifecycle_module()
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    for name in ("chat.db", "memory.db", "task.db", "server.log"):
+        (data_dir / name).write_text(name, encoding="utf-8")
+    openher_db = data_dir / "openher.db"
+    openher_db.write_bytes(b"not sqlite")
+
+    summary = lifecycle.reset_runtime_data(data_dir=data_dir)
+
+    assert sorted(summary["deleted_files"]) == ["chat.db", "memory.db", "server.log", "task.db"]
+    assert openher_db.read_bytes() == b"not sqlite"
+    assert summary["cleared_tables"] == []
+    assert summary["genesis_seed_count"] == 0
+    assert summary["errors"]
+    assert "SQLite reset failed for openher.db" in summary["errors"][0]
+
+
+def test_data_lifecycle_reset_cli_reports_corrupt_openher_db_as_json(tmp_path):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "openher.db").write_bytes(b"not sqlite")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--data-dir",
+            str(data_dir),
+            "reset",
+            "--no-backup",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    payload = json.loads(result.stdout)
+    assert result.returncode == 1
+    assert payload["status"] == "error"
+    assert payload["reset"]["errors"]
+    assert "SQLite reset failed for openher.db" in payload["reset"]["errors"][0]
+    assert result.stderr == ""
+
+
 def test_reset_data_legacy_entrypoint_delegates_to_data_lifecycle_module():
     source = (ROOT / "scripts" / "reset_data.py").read_text(encoding="utf-8")
 
     assert "from scripts.data_lifecycle import" in source
     assert "resolve_data_dir" in source
     assert "reset_runtime_data" in source
+    assert 'summary.get("errors", [])' in source
+    assert "raise SystemExit(1)" in source
 
 
 def _create_openher_db(path: Path) -> None:

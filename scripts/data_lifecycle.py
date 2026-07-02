@@ -245,6 +245,7 @@ def reset_runtime_data(data_dir: Path | str) -> dict[str, Any]:
         "missing_files": [],
         "cleared_tables": [],
         "genesis_seed_count": 0,
+        "errors": [],
     }
 
     for filename in (*RUNTIME_DB_FILES, *RUNTIME_LOG_FILES):
@@ -267,6 +268,8 @@ def reset_runtime_data(data_dir: Path | str) -> dict[str, Any]:
             if _table_exists(conn, "genesis_seed"):
                 row = conn.execute("SELECT COUNT(*) FROM genesis_seed").fetchone()
                 summary["genesis_seed_count"] = int(row[0]) if row else 0
+        except sqlite3.DatabaseError as exc:
+            summary["errors"].append(f"SQLite reset failed for openher.db: {exc}")
         finally:
             conn.close()
 
@@ -340,9 +343,12 @@ def main(argv: list[str] | None = None) -> int:
                 backup_dir=Path(args.backup_dir) if args.backup_dir else None,
             )
             result["backup_path"] = str(backup_path)
-        result["reset"] = reset_runtime_data(data_dir)
+        reset_summary = reset_runtime_data(data_dir)
+        result["reset"] = reset_summary
+        if reset_summary["errors"]:
+            result["status"] = "error"
         _print_json(result)
-        return 0
+        return 0 if result["status"] == "ok" else 1
 
     parser.error(f"unknown command: {args.command}")
     return 2

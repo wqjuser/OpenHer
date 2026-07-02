@@ -40,6 +40,11 @@ def clean_data():
         print(f"  ⏭️  {fname} 不存在，跳过")
     for table in summary["cleared_tables"]:
         print(f"  ✅ 已清空 openher.db → {table}")
+    for error in summary.get("errors", []):
+        print(f"  ❌ {error}")
+    if summary.get("errors", []):
+        print("  ⚠️  请先备份并检查 openher.db，未继续导入种子")
+        raise SystemExit(1)
 
     if not os.path.exists(DB_PATH):
         print("  ⏭️  openher.db 不存在")
