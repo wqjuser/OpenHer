@@ -17,52 +17,52 @@ def test_bootstrap_module_exports_runtime_hooks():
 
 
 def test_runtime_data_dir_defaults_to_repo_data_dir(monkeypatch, tmp_path):
-    import server.bootstrap as bootstrap
+    from server.persistence_runtime import resolve_runtime_data_dir
 
     monkeypatch.delenv("OPENHER_DATA_DIR", raising=False)
 
-    assert bootstrap._runtime_data_dir(tmp_path) == tmp_path / ".data"
+    assert resolve_runtime_data_dir(tmp_path) == tmp_path / ".data"
 
 
 def test_runtime_data_dir_accepts_absolute_override(monkeypatch, tmp_path):
-    import server.bootstrap as bootstrap
+    from server.persistence_runtime import resolve_runtime_data_dir
 
     data_dir = tmp_path / "isolated"
     monkeypatch.setenv("OPENHER_DATA_DIR", str(data_dir))
 
-    assert bootstrap._runtime_data_dir(tmp_path) == data_dir
+    assert resolve_runtime_data_dir(tmp_path) == data_dir
 
 
 def test_runtime_data_dir_resolves_relative_override_against_repo(monkeypatch, tmp_path):
-    import server.bootstrap as bootstrap
+    from server.persistence_runtime import resolve_runtime_data_dir
 
     monkeypatch.setenv("OPENHER_DATA_DIR", ".runtime-smoke")
 
-    assert bootstrap._runtime_data_dir(tmp_path) == tmp_path / ".runtime-smoke"
+    assert resolve_runtime_data_dir(tmp_path) == tmp_path / ".runtime-smoke"
 
 
 def test_runtime_path_remaps_default_data_paths_to_runtime_dir(tmp_path):
-    import server.bootstrap as bootstrap
+    from server.persistence_runtime import resolve_runtime_path
 
     assert (
-        bootstrap._runtime_path(tmp_path, tmp_path / "runtime", ".data/memory.db")
+        resolve_runtime_path(tmp_path, tmp_path / "runtime", ".data/memory.db")
         == tmp_path / "runtime" / "memory.db"
     )
 
 
 def test_runtime_path_preserves_absolute_paths(tmp_path):
-    import server.bootstrap as bootstrap
+    from server.persistence_runtime import resolve_runtime_path
 
     absolute_path = tmp_path / "external" / "memory.db"
 
-    assert bootstrap._runtime_path(tmp_path, tmp_path / "runtime", str(absolute_path)) == absolute_path
+    assert resolve_runtime_path(tmp_path, tmp_path / "runtime", str(absolute_path)) == absolute_path
 
 
 def test_runtime_path_resolves_custom_relative_paths_against_repo(tmp_path):
-    import server.bootstrap as bootstrap
+    from server.persistence_runtime import resolve_runtime_path
 
     assert (
-        bootstrap._runtime_path(tmp_path, tmp_path / "runtime", "var/memory.db")
+        resolve_runtime_path(tmp_path, tmp_path / "runtime", "var/memory.db")
         == tmp_path / "var" / "memory.db"
     )
 
@@ -93,6 +93,18 @@ def test_bootstrap_degrades_when_llm_provider_is_unavailable():
     assert "get_image_config" not in bootstrap_source
     assert "LLMClient(" not in bootstrap_source
     assert "TTSEngine(" not in bootstrap_source
+    assert "from server.persistence_runtime import build_persistence_runtime_services" in bootstrap_source
+    assert "persistence_runtime = await build_persistence_runtime_services(base_dir)" in bootstrap_source
+    assert "context.genome_data_dir = str(persistence_runtime.genome_data_dir)" in bootstrap_source
+    assert "context.state_store = persistence_runtime.state_store" in bootstrap_source
+    assert "context.chat_log_store = persistence_runtime.chat_log_store" in bootstrap_source
+    assert "context.memory_store = persistence_runtime.memory_store" in bootstrap_source
+    assert "context.evermemos = persistence_runtime.evermemos" in bootstrap_source
+    assert "StateStore(" not in bootstrap_source
+    assert "ChatLogStore(" not in bootstrap_source
+    assert "MemoryStore(" not in bootstrap_source
+    assert "EverMemOSClient(" not in bootstrap_source
+    assert "get_memory_provider_config" not in bootstrap_source
     assert "ChatApiService(" in bootstrap_source
     assert "session_manager=None" in bootstrap_source
     assert "context.session_agent_factory = None" in bootstrap_source

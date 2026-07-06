@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -15,14 +14,10 @@ from agent.skills.tool_registry import ToolRegistry
 from agent.skills.tools.photo_tools import register_photo_tools
 from agent.skills.tools.split_tools import register_split_tools
 from agent.skills.tools.voice_tools import register_voice_tools
-from engine.chat_log_store import ChatLogStore
-from engine.state_store import StateStore
-from memory.memory_store import MemoryStore
 from persona import PersonaLoader
-from providers.api_config import get_memory_config
-from providers.memory.evermemos.evermemos_client import EverMemOSClient
 from server.chat_api_service import ChatApiService
 from server.context import AppContext
+from server.persistence_runtime import build_persistence_runtime_services
 from server.persona_api_service import PersonaApiService
 from server.provider_runtime import build_provider_runtime_services
 from server.proactive_service import ProactiveService
@@ -41,26 +36,6 @@ INSTANCE_ID = str(uuid.uuid4())[:8]
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
-
-
-def _runtime_data_dir(base_dir: Path) -> Path:
-    configured = os.getenv("OPENHER_DATA_DIR", "").strip()
-    if not configured:
-        return base_dir / ".data"
-
-    data_dir = Path(configured).expanduser()
-    if not data_dir.is_absolute():
-        data_dir = base_dir / data_dir
-    return data_dir
-
-
-def _runtime_path(base_dir: Path, data_dir: Path, configured_path: str) -> Path:
-    path = Path(configured_path).expanduser()
-    if path.is_absolute():
-        return path
-    if path.parts and path.parts[0] == ".data":
-        return data_dir.joinpath(*path.parts[1:])
-    return base_dir / path
 
 
 def _get_or_create_session(
@@ -171,31 +146,18 @@ async def startup(context: AppContext) -> None:
     cron_skills = context.task_skill_engine.get_cron_skills()
     print(f"✓ 加载了 {len(task_loaded)}+{len(modality_loaded)} 个技能 (task+modality), {len(cron_skills)} 个定时任务")
 
-    data_dir = _runtime_data_dir(base_dir)
-    context.genome_data_dir = str(data_dir / "genome")
-    os.makedirs(context.genome_data_dir, exist_ok=True)
-
-    context.state_store = StateStore(str(data_dir / "openher.db"))
-    context.chat_log_store = ChatLogStore(str(data_dir / "chat.db"))
-
-    from providers.config import get_memory_provider_config
-
-    mem_prov_cfg = get_memory_provider_config()
-    soulmem_db = _runtime_path(base_dir, data_dir, mem_prov_cfg["soulmem"]["db_path"])
-    os.makedirs(os.path.dirname(str(soulmem_db)) or ".", exist_ok=True)
-    context.memory_store = MemoryStore(str(soulmem_db))
-
-    mem_cfg = get_memory_config()
-    if mem_cfg["enabled"] and (mem_cfg["base_url"] or mem_cfg["api_key"]):
-        context.evermemos = EverMemOSClient(
-            base_url=mem_cfg["base_url"] or None,
-            api_key=mem_cfg["api_key"] or None,
-        )
-        if context.evermemos.available:
-            await context.evermemos.verify_connection()
-    else:
-        context.evermemos = None
-        print("ℹ EverMemOS: 未配置或已禁用，使用本地 MemoryStore")
+    persistence_runtime = await build_persistence_runtime_services(base_dir)
+    context.genome_data_dir = str(persistence_runtime.genome_data_dir)
+    context.state_store = persistence_runtime.state_store
+    context.chat_log_store = persistence_runtime.chat_log_store
+    context.memory_store = persistence_runtime.memory_store
+    context.evermemos = persistence_runtime.evermemos
+    for message in persistence_runtime.messages:
+        print(message)
+    state_store = persistence_runtime.state_store
+    chat_log_store = persistence_runtime.chat_log_store
+    memory_store = persistence_runtime.memory_store
+    evermemos = persistence_runtime.evermemos
 
     if context.llm_client:
         context.session_agent_factory = SessionAgentFactory(
@@ -203,20 +165,20 @@ async def startup(context: AppContext) -> None:
             llm_client=context.llm_client,
             task_skill_engine=context.task_skill_engine,
             modality_skill_engine=context.modality_skill_engine,
-            memory_store=context.memory_store,
-            state_store=context.state_store,
-            evermemos=context.evermemos,
+            memory_store=memory_store,
+            state_store=state_store,
+            evermemos=evermemos,
             genome_data_dir=context.genome_data_dir,
         )
         context.session_manager = SessionManager(
             agent_factory=context.session_agent_factory,
-            state_store=context.state_store,
-            evermemos=context.evermemos,
+            state_store=state_store,
+            evermemos=evermemos,
             ttl_seconds=SESSION_TTL_SECONDS,
         )
         context.chat_api_service = ChatApiService(
             session_manager=context.session_manager,
-            chat_log_store=context.chat_log_store,
+            chat_log_store=chat_log_store,
         )
 
         context.persona_switch_service = WebSocketPersonaSwitchService(
@@ -245,7 +207,7 @@ async def startup(context: AppContext) -> None:
         context.session_manager = None
         context.chat_api_service = ChatApiService(
             session_manager=None,
-            chat_log_store=context.chat_log_store,
+            chat_log_store=chat_log_store,
         )
         context.persona_switch_service = None
         context.ws_chat_turn_service = None
@@ -274,9 +236,9 @@ async def startup(context: AppContext) -> None:
 
         proactive_config = _load_proactive_config(base_dir)
         context.proactive_service = ProactiveService(
-            state_store=context.state_store,
+            state_store=state_store,
             session_manager=context.session_manager,
-            evermemos=context.evermemos,
+            evermemos=evermemos,
             ws_connections=context.ws_registry.session_connections,
             persist_agent=lambda agent: _persist_agent(context, agent),
             instance_id=INSTANCE_ID,
