@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from providers.diagnostics import provider_secret_configured
+
 STATUS_ORDER = {"ok": 0, "warn": 1, "error": 2}
 
 
@@ -82,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _llm_check(cfg: dict[str, Any]) -> dict[str, Any]:
-    configured = _has_secret(cfg)
+    configured = provider_secret_configured(cfg)
     available = bool(cfg.get("available", False))
     missing = str(cfg.get("missing_key_env") or "")
     status = "ok" if available else "error"
@@ -107,7 +109,7 @@ def _llm_check(cfg: dict[str, Any]) -> dict[str, Any]:
 
 
 def _optional_provider_check(label: str, cfg: dict[str, Any]) -> dict[str, Any]:
-    configured = _has_secret(cfg, active=True)
+    configured = provider_secret_configured(cfg, active=True)
     available = bool(cfg.get("available", False))
     missing = str(cfg.get("missing_key_env") or "")
     status = "ok" if available else "warn"
@@ -134,7 +136,7 @@ def _optional_provider_check(label: str, cfg: dict[str, Any]) -> dict[str, Any]:
 
 def _memory_check(cfg: dict[str, Any]) -> dict[str, Any]:
     enabled = bool(cfg.get("enabled", False))
-    configured = _has_secret(cfg)
+    configured = provider_secret_configured(cfg)
     base_url = str(cfg.get("base_url") or "")
     if not enabled:
         return _check(
@@ -232,13 +234,6 @@ def _latest_backup(data_dir: Path) -> Path | None:
         reverse=True,
     )
     return archives[0] if archives else None
-
-
-def _has_secret(cfg: dict[str, Any], active: bool = False) -> bool:
-    secret_key = "api_" + "key"
-    key = f"active_{secret_key}" if active else secret_key
-    return bool(cfg.get(key))
-
 
 def _check(status: str, message: str, setup_hint: str, details: dict[str, Any]) -> dict[str, Any]:
     return {

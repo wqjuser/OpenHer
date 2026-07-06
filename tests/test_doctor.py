@@ -34,6 +34,8 @@ def test_doctor_script_exposes_secret_safe_local_contracts():
     assert "get_memory_config" in source
     assert "inventory_data_dir" in source
     assert "verify_backup_archive" in source
+    assert "provider_secret_configured" in source
+    assert "def _has_secret" not in source
     assert "api_key_configured" in source
     assert "setup_hint" in source
     assert "--strict" in source

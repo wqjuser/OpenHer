@@ -49,6 +49,18 @@ def test_main_delegates_core_route_registration_to_modules():
     assert "@app.websocket(\"/ws/chat\")" not in main_source
 
 
+def test_health_route_delegates_provider_diagnostics_boundary():
+    health_source = (ROOT / "server" / "routes" / "health.py").read_text(encoding="utf-8")
+
+    assert "from providers.diagnostics import" in health_source
+    assert "provider_capability_status" in health_source
+    assert "memory_runtime_status" in health_source
+    assert "capabilities_status" in health_source
+    assert "def _capability_status" not in health_source
+    assert "def _provider_setup_hint" not in health_source
+    assert "def _capabilities_status" not in health_source
+
+
 def test_api_status_reports_provider_readiness_without_secrets():
     from fastapi.testclient import TestClient
     import main
