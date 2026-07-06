@@ -19,14 +19,12 @@ from engine.chat_log_store import ChatLogStore
 from engine.state_store import StateStore
 from memory.memory_store import MemoryStore
 from persona import PersonaLoader
-from providers.api_config import get_image_config, get_llm_config, get_memory_config, get_tts_config
-from providers.llm import LLMClient
-from providers.media.tts_engine import TTSEngine, TTSProvider
+from providers.api_config import get_memory_config
 from providers.memory.evermemos.evermemos_client import EverMemOSClient
 from server.chat_api_service import ChatApiService
 from server.context import AppContext
-from server.media_api_service import MediaApiService, resolve_image_cache_dir
 from server.persona_api_service import PersonaApiService
+from server.provider_runtime import build_provider_runtime_services
 from server.proactive_service import ProactiveService
 from server.session_agent_factory import SessionAgentFactory
 from server.session_manager import SessionManager
@@ -34,7 +32,6 @@ from server.websocket_chat import WebSocketChatTurnService
 from server.websocket_demo import WebSocketDemoCommandService
 from server.websocket_persona_switch import WebSocketPersonaSwitchService
 from server.websocket_route_service import WebSocketRouteService
-from server.ws_tts import WebSocketTTSService
 
 
 SESSION_TTL_SECONDS = 30 * 60
@@ -149,49 +146,17 @@ async def startup(context: AppContext) -> None:
         personas_dir=base_dir / "persona" / "personas",
     )
 
-    llm_cfg = get_llm_config()
-    llm_available = bool(llm_cfg.get("available", True))
-    if llm_available:
-        context.llm_client = LLMClient(
-            provider=llm_cfg["provider"],
-            model=llm_cfg["model"],
-            temperature=llm_cfg.get("temperature", 0.92),
-            max_tokens=llm_cfg.get("max_tokens", 1024),
-        )
-    else:
-        context.llm_client = None
-        missing_key = llm_cfg.get("missing_key_env") or f"{llm_cfg['provider'].upper()}_API_KEY"
-        print(
-            f"⚠ LLM provider '{llm_cfg['provider']}' 未配置 {missing_key}，"
-            "已禁用聊天会话、WebSocket 聊天和主动消息"
-        )
-
-    tts_cfg = get_tts_config()
-    tts_available = bool(tts_cfg.get("available", False))
-    context.tts_engine = TTSEngine(
-        provider=TTSProvider(tts_cfg["provider"]),
-        cache_dir=str(base_dir / tts_cfg["cache_dir"]),
-    )
-    if tts_available:
-        context.ws_tts_service = WebSocketTTSService(tts_engine=context.tts_engine)
-    else:
-        context.ws_tts_service = None
-        missing_key = tts_cfg.get("missing_key_env") or f"{tts_cfg['provider'].upper()}_API_KEY"
-        print(
-            f"⚠ TTS provider '{tts_cfg['provider']}' 未配置 {missing_key}，"
-            "已禁用语音技能和 WebSocket TTS"
-        )
-    image_cfg = get_image_config()
-    context.media_api_service = MediaApiService(
-        tts_engine=context.tts_engine if tts_available else None,
-        image_cache_dir=resolve_image_cache_dir(base_dir),
-        image_available=bool(image_cfg.get("available", False)),
-        image_unavailable_reason=str(image_cfg.get("missing_key_env") or ""),
-    )
+    provider_runtime = build_provider_runtime_services(base_dir)
+    context.llm_client = provider_runtime.llm_client
+    context.tts_engine = provider_runtime.tts_engine
+    context.ws_tts_service = provider_runtime.ws_tts_service
+    context.media_api_service = provider_runtime.media_api_service
+    for warning in provider_runtime.warnings:
+        print(warning)
 
     tool_registry = ToolRegistry()
     register_photo_tools(tool_registry)
-    if tts_available:
+    if provider_runtime.tts_available:
         register_voice_tools(tool_registry)
     register_split_tools(tool_registry)
     print(f"✓ 注册了 {len(tool_registry.tool_names)} 个工具: {tool_registry.tool_names}")

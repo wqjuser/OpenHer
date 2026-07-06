@@ -220,9 +220,8 @@ def test_app_context_and_bootstrap_expose_media_api_service_boundary():
 
     assert "from server.media_api_service import MediaApiService" in context_source
     assert "media_api_service: MediaApiService | None = None" in context_source
-    assert "from server.media_api_service import MediaApiService" in bootstrap_source
-    assert "resolve_image_cache_dir" in bootstrap_source
-    assert "context.media_api_service = MediaApiService(" in bootstrap_source
-    assert "tts_engine=context.tts_engine if tts_available else None" in bootstrap_source
+    assert "from server.provider_runtime import build_provider_runtime_services" in bootstrap_source
+    assert "context.media_api_service = provider_runtime.media_api_service" in bootstrap_source
     assert '"media_api_service": context.media_api_service' in bootstrap_source
+    assert "context.media_api_service = MediaApiService(" not in bootstrap_source
     assert 'base_dir / ".cache" / "image"' not in bootstrap_source

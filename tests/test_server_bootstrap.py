@@ -81,9 +81,18 @@ def test_main_delegates_lifespan_to_bootstrap_module():
 def test_bootstrap_degrades_when_llm_provider_is_unavailable():
     bootstrap_source = (ROOT / "server" / "bootstrap.py").read_text(encoding="utf-8")
 
-    assert 'llm_available = bool(llm_cfg.get("available", True))' in bootstrap_source
-    assert "context.llm_client = None" in bootstrap_source
-    assert "LLM provider" in bootstrap_source
+    assert "from server.provider_runtime import build_provider_runtime_services" in bootstrap_source
+    assert "provider_runtime = build_provider_runtime_services(base_dir)" in bootstrap_source
+    assert "context.llm_client = provider_runtime.llm_client" in bootstrap_source
+    assert "context.tts_engine = provider_runtime.tts_engine" in bootstrap_source
+    assert "context.ws_tts_service = provider_runtime.ws_tts_service" in bootstrap_source
+    assert "context.media_api_service = provider_runtime.media_api_service" in bootstrap_source
+    assert "if provider_runtime.tts_available:" in bootstrap_source
+    assert "get_llm_config" not in bootstrap_source
+    assert "get_tts_config" not in bootstrap_source
+    assert "get_image_config" not in bootstrap_source
+    assert "LLMClient(" not in bootstrap_source
+    assert "TTSEngine(" not in bootstrap_source
     assert "ChatApiService(" in bootstrap_source
     assert "session_manager=None" in bootstrap_source
     assert "context.session_agent_factory = None" in bootstrap_source
