@@ -87,7 +87,6 @@ def test_bootstrap_degrades_when_llm_provider_is_unavailable():
     assert "context.tts_engine = provider_runtime.tts_engine" in bootstrap_source
     assert "context.ws_tts_service = provider_runtime.ws_tts_service" in bootstrap_source
     assert "context.media_api_service = provider_runtime.media_api_service" in bootstrap_source
-    assert "if provider_runtime.tts_available:" in bootstrap_source
     assert "get_llm_config" not in bootstrap_source
     assert "get_tts_config" not in bootstrap_source
     assert "get_image_config" not in bootstrap_source
@@ -105,6 +104,19 @@ def test_bootstrap_degrades_when_llm_provider_is_unavailable():
     assert "MemoryStore(" not in bootstrap_source
     assert "EverMemOSClient(" not in bootstrap_source
     assert "get_memory_provider_config" not in bootstrap_source
+    assert "from server.skill_runtime import build_skill_runtime_services" in bootstrap_source
+    assert "skill_runtime = build_skill_runtime_services(" in bootstrap_source
+    assert "voice_tools_enabled=provider_runtime.tts_available" in bootstrap_source
+    assert "context.task_skill_engine = skill_runtime.task_skill_engine" in bootstrap_source
+    assert "context.modality_skill_engine = skill_runtime.modality_skill_engine" in bootstrap_source
+    assert "cron_skills = skill_runtime.cron_skills" in bootstrap_source
+    assert "for message in skill_runtime.messages:" in bootstrap_source
+    assert "ToolRegistry(" not in bootstrap_source
+    assert "register_photo_tools(" not in bootstrap_source
+    assert "register_voice_tools(" not in bootstrap_source
+    assert "register_split_tools(" not in bootstrap_source
+    assert "TaskSkillEngine(" not in bootstrap_source
+    assert "ModalitySkillEngine(" not in bootstrap_source
     assert "ChatApiService(" in bootstrap_source
     assert "session_manager=None" in bootstrap_source
     assert "context.session_agent_factory = None" in bootstrap_source

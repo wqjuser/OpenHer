@@ -9,11 +9,6 @@ from typing import Any, Optional
 
 from agent.chat_agent import ChatAgent
 from agent.cron_scheduler import CronScheduler
-from agent.skills import ModalitySkillEngine, TaskSkillEngine
-from agent.skills.tool_registry import ToolRegistry
-from agent.skills.tools.photo_tools import register_photo_tools
-from agent.skills.tools.split_tools import register_split_tools
-from agent.skills.tools.voice_tools import register_voice_tools
 from persona import PersonaLoader
 from server.chat_api_service import ChatApiService
 from server.context import AppContext
@@ -23,6 +18,7 @@ from server.provider_runtime import build_provider_runtime_services
 from server.proactive_service import ProactiveService
 from server.session_agent_factory import SessionAgentFactory
 from server.session_manager import SessionManager
+from server.skill_runtime import build_skill_runtime_services
 from server.websocket_chat import WebSocketChatTurnService
 from server.websocket_demo import WebSocketDemoCommandService
 from server.websocket_persona_switch import WebSocketPersonaSwitchService
@@ -129,22 +125,17 @@ async def startup(context: AppContext) -> None:
     for warning in provider_runtime.warnings:
         print(warning)
 
-    tool_registry = ToolRegistry()
-    register_photo_tools(tool_registry)
-    if provider_runtime.tts_available:
-        register_voice_tools(tool_registry)
-    register_split_tools(tool_registry)
-    print(f"✓ 注册了 {len(tool_registry.tool_names)} 个工具: {tool_registry.tool_names}")
-
-    context.task_skill_engine = TaskSkillEngine(str(base_dir / "skills" / "task"), tool_registry=tool_registry)
-    task_loaded = context.task_skill_engine.load_all()
-    context.modality_skill_engine = ModalitySkillEngine(
-        str(base_dir / "skills" / "modality"),
-        tool_registry=tool_registry,
+    skill_runtime = build_skill_runtime_services(
+        base_dir,
+        voice_tools_enabled=provider_runtime.tts_available,
     )
-    modality_loaded = context.modality_skill_engine.load_all()
-    cron_skills = context.task_skill_engine.get_cron_skills()
-    print(f"✓ 加载了 {len(task_loaded)}+{len(modality_loaded)} 个技能 (task+modality), {len(cron_skills)} 个定时任务")
+    context.task_skill_engine = skill_runtime.task_skill_engine
+    context.modality_skill_engine = skill_runtime.modality_skill_engine
+    task_skill_engine = skill_runtime.task_skill_engine
+    modality_skill_engine = skill_runtime.modality_skill_engine
+    cron_skills = skill_runtime.cron_skills
+    for message in skill_runtime.messages:
+        print(message)
 
     persistence_runtime = await build_persistence_runtime_services(base_dir)
     context.genome_data_dir = str(persistence_runtime.genome_data_dir)
@@ -163,8 +154,8 @@ async def startup(context: AppContext) -> None:
         context.session_agent_factory = SessionAgentFactory(
             persona_loader=context.persona_loader,
             llm_client=context.llm_client,
-            task_skill_engine=context.task_skill_engine,
-            modality_skill_engine=context.modality_skill_engine,
+            task_skill_engine=task_skill_engine,
+            modality_skill_engine=modality_skill_engine,
             memory_store=memory_store,
             state_store=state_store,
             evermemos=evermemos,
