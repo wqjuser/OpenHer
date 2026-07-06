@@ -195,6 +195,61 @@ class ProviderConfigBoundaryTests(unittest.TestCase):
         self.assertEqual(llm["api_key"], "")
         self.assertEqual(llm["missing_key_env"], "")
 
+    def test_provider_secret_resolution_prefers_provider_key_over_generic_key(self):
+        from providers import config as provider_config
+
+        preset = {"api_key_env": "DEEPSEEK_API_KEY"}
+        with patch.dict(
+            os.environ,
+            {
+                "DEEPSEEK_API_KEY": "deepseek-key",
+                "LLM_API_KEY": "generic-llm-key",
+            },
+            clear=True,
+        ):
+            secret = provider_config._resolve_provider_secret("deepseek", preset, "LLM_API_KEY")
+
+        self.assertEqual(secret.api_key, "deepseek-key")
+        self.assertTrue(secret.available)
+        self.assertEqual(secret.missing_key_env, "")
+        self.assertEqual(secret.env_options, ["DEEPSEEK_API_KEY", "LLM_API_KEY"])
+
+    def test_provider_secret_resolution_marks_no_key_provider_available(self):
+        from providers import config as provider_config
+
+        secret = provider_config._resolve_provider_secret(
+            "ollama",
+            {"api_key_env": "", "no_key_required": True},
+            "LLM_API_KEY",
+        )
+
+        self.assertEqual(secret.api_key, "")
+        self.assertTrue(secret.available)
+        self.assertEqual(secret.missing_key_env, "")
+        self.assertEqual(secret.env_options, ["OLLAMA_API_KEY", "LLM_API_KEY"])
+
+    def test_provider_secret_map_applies_generic_key_only_to_active_provider(self):
+        from providers import config as provider_config
+
+        providers = {
+            "dashscope": {"api_key_env": "DASHSCOPE_API_KEY"},
+            "openai": {"api_key_env": "OPENAI_API_KEY"},
+        }
+        with patch.dict(os.environ, {"TTS_API_KEY": "generic-tts-key"}, clear=True):
+            api_keys, active_secret = provider_config._resolve_provider_secret_map(
+                providers,
+                "dashscope",
+                "TTS_API_KEY",
+            )
+
+        self.assertEqual(api_keys, {
+            "dashscope": "generic-tts-key",
+            "openai": "",
+        })
+        self.assertEqual(active_secret.api_key, "generic-tts-key")
+        self.assertTrue(active_secret.available)
+        self.assertEqual(active_secret.missing_key_env, "")
+
     def test_registry_reuses_central_tts_config_resolution(self):
         from providers import config as provider_config
         from providers import registry

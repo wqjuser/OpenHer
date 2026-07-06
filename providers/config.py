@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
 from pathlib import Path
 from typing import Optional
@@ -29,6 +30,14 @@ _PROVIDER_DEFAULT_MODELS = {
 }
 
 
+@dataclass(frozen=True)
+class ResolvedProviderSecret:
+    api_key: str
+    available: bool
+    missing_key_env: str
+    env_options: list[str]
+
+
 def _provider_env_prefix(provider: str) -> str:
     """Convert provider id to an env-safe prefix."""
     return "".join(ch if ch.isalnum() else "_" for ch in provider.upper())
@@ -54,6 +63,51 @@ def _api_key_env_options(provider: str, preset_env: str, generic_env: str = "") 
 def _missing_key_env(options: list[str]) -> str:
     """Render a readable missing-key hint for accepted API-key env vars."""
     return " or ".join(options)
+
+
+def _resolve_provider_secret(
+    provider_name: str,
+    preset: dict,
+    generic_env: str = "",
+) -> ResolvedProviderSecret:
+    """Resolve one active provider secret and availability metadata."""
+    env_options = _api_key_env_options(
+        provider_name,
+        str(preset.get("api_key_env") or ""),
+        generic_env,
+    )
+    api_key = _first_env(*env_options)
+    available = bool(preset.get("no_key_required", False)) or bool(api_key)
+    missing_key_env = "" if available else _missing_key_env(env_options)
+    return ResolvedProviderSecret(
+        api_key=api_key,
+        available=available,
+        missing_key_env=missing_key_env,
+        env_options=env_options,
+    )
+
+
+def _resolve_provider_secret_map(
+    providers: dict,
+    active_provider: str,
+    generic_env: str,
+) -> tuple[dict[str, str], ResolvedProviderSecret]:
+    """Resolve all provider secrets while applying generic env only to active provider."""
+    api_keys = {}
+    active_secret: ResolvedProviderSecret | None = None
+    for name, provider_cfg in providers.items():
+        preset = provider_cfg if isinstance(provider_cfg, dict) else {}
+        secret = _resolve_provider_secret(
+            name,
+            preset,
+            generic_env if name == active_provider else "",
+        )
+        api_keys[name] = secret.api_key
+        if name == active_provider:
+            active_secret = secret
+    if active_secret is None:
+        active_secret = _resolve_provider_secret(active_provider, {}, generic_env)
+    return api_keys, active_secret
 
 
 def _load() -> dict:
@@ -103,12 +157,7 @@ def get_llm_config(provider: Optional[str] = None) -> dict:
     providers = llm.get("providers", {})
     preset = providers.get(provider_name, {})
 
-    api_key_env = preset.get("api_key_env", "")
-    api_key_env_options = _api_key_env_options(provider_name, api_key_env, "LLM_API_KEY")
-    api_key = _first_env(*api_key_env_options)
-    no_key_required = bool(preset.get("no_key_required", False))
-    available = no_key_required or bool(api_key)
-    missing_key_env = "" if available else _missing_key_env(api_key_env_options)
+    secret = _resolve_provider_secret(provider_name, preset, "LLM_API_KEY")
 
     base_url_env = preset.get("base_url_env", "")
     base_url = (
@@ -126,10 +175,10 @@ def get_llm_config(provider: Optional[str] = None) -> dict:
     return {
         "provider": provider_name,
         "model": model,
-        "api_key": api_key,
+        "api_key": secret.api_key,
         "base_url": base_url,
-        "available": available,
-        "missing_key_env": missing_key_env,
+        "available": secret.available,
+        "missing_key_env": secret.missing_key_env,
         "temperature": llm.get("temperature", 0.92),
         "max_tokens": llm.get("max_tokens", 1024),
         "providers": providers,
@@ -164,30 +213,17 @@ def get_tts_config(provider: Optional[str] = None) -> dict:
     tts = _tts_section()
     providers = tts.get("providers", {})
     provider_name = provider or tts.get("provider", tts.get("active_provider", "dashscope"))
-    api_keys = {}
-    for name, provider_cfg in providers.items():
-        env_var = provider_cfg.get("api_key_env", "")
-        generic_env = "TTS_API_KEY" if name == provider_name else ""
-        api_keys[name] = _first_env(*_api_key_env_options(name, env_var, generic_env))
+    api_keys, active_secret = _resolve_provider_secret_map(providers, provider_name, "TTS_API_KEY")
 
     active_preset = providers.get(provider_name, {})
-    active_api_key = api_keys.get(provider_name, "")
-    no_key_required = bool(active_preset.get("no_key_required", False))
-    available = no_key_required or bool(active_api_key)
-    active_key_env_options = _api_key_env_options(
-        provider_name,
-        active_preset.get("api_key_env", ""),
-        "TTS_API_KEY",
-    )
-    missing_key_env = "" if available else _missing_key_env(active_key_env_options)
 
     return {
         "provider": provider_name,
         "cache_dir": tts.get("cache_dir", ".cache/tts"),
         "api_keys": api_keys,
-        "active_api_key": active_api_key,
-        "available": available,
-        "missing_key_env": missing_key_env,
+        "active_api_key": active_secret.api_key,
+        "available": active_secret.available,
+        "missing_key_env": active_secret.missing_key_env,
         "minimax_model": providers.get("minimax", {}).get("model", "speech-2.8-turbo"),
         "active_provider_config": active_preset,
     }
@@ -253,30 +289,17 @@ def get_image_config(provider: Optional[str] = None) -> dict:
         or image.get("active_provider")
         or "gemini"
     )
-    api_keys = {}
-    for name, provider_cfg in providers.items():
-        env_var = provider_cfg.get("api_key_env", "")
-        generic_env = "IMAGE_API_KEY" if name == provider_name else ""
-        api_keys[name] = _first_env(*_api_key_env_options(name, env_var, generic_env))
+    api_keys, active_secret = _resolve_provider_secret_map(providers, provider_name, "IMAGE_API_KEY")
 
     active_preset = providers.get(provider_name, {})
-    active_api_key = api_keys.get(provider_name, "")
-    no_key_required = bool(active_preset.get("no_key_required", False))
-    available = no_key_required or bool(active_api_key)
-    active_key_env_options = _api_key_env_options(
-        provider_name,
-        active_preset.get("api_key_env", ""),
-        "IMAGE_API_KEY",
-    )
-    missing_key_env = "" if available else _missing_key_env(active_key_env_options)
 
     return {
         "provider": provider_name,
         "cache_dir": image.get("cache_dir", ".cache/image"),
         "api_keys": api_keys,
-        "active_api_key": active_api_key,
-        "available": available,
-        "missing_key_env": missing_key_env,
+        "active_api_key": active_secret.api_key,
+        "available": active_secret.available,
+        "missing_key_env": active_secret.missing_key_env,
         "model": active_preset.get("model", ""),
         "providers": providers,
         "active_provider_config": active_preset,
