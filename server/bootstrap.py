@@ -5,16 +5,15 @@ from __future__ import annotations
 import asyncio
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from agent.chat_agent import ChatAgent
-from agent.cron_scheduler import CronScheduler
 from persona import PersonaLoader
+from server.background_runtime import build_background_runtime_services
 from server.context import AppContext
 from server.persistence_runtime import build_persistence_runtime_services
 from server.persona_api_service import PersonaApiService
 from server.provider_runtime import build_provider_runtime_services
-from server.proactive_service import ProactiveService
 from server.session_runtime import build_session_runtime_services
 from server.skill_runtime import build_skill_runtime_services
 
@@ -43,60 +42,6 @@ def _get_or_create_session(
 def _remove_session(context: AppContext, session_id: str) -> None:
     if context.session_manager:
         context.session_manager.remove(session_id)
-
-
-def _persist_agent(context: AppContext, agent: ChatAgent) -> None:
-    if context.session_manager:
-        context.session_manager.persist_agent(agent)
-
-
-async def _cron_generate_message(context: AppContext, skill_prompt: str, persona_id: str) -> str:
-    if not context.persona_loader or not context.llm_client:
-        return ""
-    persona = context.persona_loader.get(persona_id)
-    if not persona:
-        return ""
-
-    from providers.llm.client import ChatMessage
-
-    messages = [
-        ChatMessage(role="system", content=f"你是{persona.name}。{skill_prompt}"),
-        ChatMessage(role="user", content="请生成一条主动消息"),
-    ]
-    response = await context.llm_client.chat(messages)
-    return response.content
-
-
-async def _cron_deliver_message(
-    context: AppContext,
-    persona_id: str,
-    skill_id: str,
-    message: str,
-) -> None:
-    print(f"[cron] 📨 {persona_id}/{skill_id}: {message[:60]}...")
-    if context.memory_store:
-        context.memory_store.add(
-            user_id="__broadcast__",
-            persona_id=persona_id,
-            content=f"[{skill_id}] {message}",
-            category="event",
-            importance=0.6,
-        )
-
-
-def _load_proactive_config(base_dir: Path) -> dict[str, Any]:
-    try:
-        import yaml as yaml_cfg
-
-        cfg_path = base_dir / "providers" / "memory" / "evermemos" / "memory_config.yaml"
-        cfg_raw = yaml_cfg.safe_load(cfg_path.read_text()).get("evermemos", {}) if cfg_path.exists() else {}
-    except Exception:
-        cfg_raw = {}
-    return {
-        "cooldown_hours": cfg_raw.get("proactive_cooldown_hours", 4),
-        "max_pending": cfg_raw.get("proactive_max_pending", 3),
-        "lock_ttl": cfg_raw.get("proactive_lock_ttl_sec", 600),
-    }
 
 
 async def startup(context: AppContext) -> None:
@@ -173,36 +118,25 @@ async def startup(context: AppContext) -> None:
     context.ws_route_service = session_runtime.ws_route_service
     session_manager = session_runtime.session_manager
 
-    if context.llm_client and session_manager:
-        if cron_skills:
-            context.cron_scheduler = CronScheduler()
-            context.cron_scheduler.set_message_generator(
-                lambda skill_prompt, persona_id: _cron_generate_message(context, skill_prompt, persona_id)
-            )
-            context.cron_scheduler.set_message_callback(
-                lambda persona_id, skill_id, message: _cron_deliver_message(context, persona_id, skill_id, message)
-            )
-            context.cron_scheduler.register_skills(cron_skills, persona_ids=list(personas.keys()))
-            context.cron_scheduler.start()
-
-        proactive_config = _load_proactive_config(base_dir)
-        context.proactive_service = ProactiveService(
-            state_store=state_store,
-            session_manager=session_manager,
-            evermemos=evermemos,
-            ws_connections=context.ws_registry.session_connections,
-            persist_agent=lambda agent: _persist_agent(context, agent),
-            instance_id=INSTANCE_ID,
-            config=proactive_config,
-            interval_seconds=PROACTIVE_INTERVAL_SECONDS,
-        )
-        context.proactive_task = asyncio.create_task(context.proactive_service.heartbeat_loop())
-        print(f"✓ 主动消息心跳已启动 (cooldown={proactive_config['cooldown_hours']}h, ttl={proactive_config['lock_ttl']}s)")
-    else:
-        if cron_skills:
-            print("⚠ LLM 未配置，已跳过定时任务调度")
-        context.proactive_service = None
-        context.proactive_task = None
+    background_runtime = build_background_runtime_services(
+        base_dir=base_dir,
+        llm_client=context.llm_client,
+        persona_loader=context.persona_loader,
+        memory_store=memory_store,
+        session_manager=session_manager,
+        cron_skills=cron_skills,
+        persona_ids=list(personas.keys()),
+        state_store=state_store,
+        evermemos=evermemos,
+        ws_connections=context.ws_registry.session_connections,
+        instance_id=INSTANCE_ID,
+        proactive_interval_seconds=PROACTIVE_INTERVAL_SECONDS,
+    )
+    context.cron_scheduler = background_runtime.cron_scheduler
+    context.proactive_service = background_runtime.proactive_service
+    context.proactive_task = background_runtime.proactive_task
+    for message in background_runtime.messages:
+        print(message)
 
     print("✓ OpenHer 服务启动完成 (v0.5.0 — Genome v10 Hybrid Engine)")
 

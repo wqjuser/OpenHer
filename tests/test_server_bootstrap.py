@@ -133,6 +133,14 @@ def test_bootstrap_degrades_when_llm_provider_is_unavailable():
     assert "WebSocketChatTurnService(" not in bootstrap_source
     assert "WebSocketDemoCommandService(" not in bootstrap_source
     assert "WebSocketRouteService(" not in bootstrap_source
-    assert "if context.llm_client and session_manager:" in bootstrap_source
-    assert "context.proactive_service = None" in bootstrap_source
-    assert "context.proactive_task = None" in bootstrap_source
+    assert "from server.background_runtime import build_background_runtime_services" in bootstrap_source
+    assert "background_runtime = build_background_runtime_services(" in bootstrap_source
+    assert "context.cron_scheduler = background_runtime.cron_scheduler" in bootstrap_source
+    assert "context.proactive_service = background_runtime.proactive_service" in bootstrap_source
+    assert "context.proactive_task = background_runtime.proactive_task" in bootstrap_source
+    assert "for message in background_runtime.messages:" in bootstrap_source
+    assert "CronScheduler(" not in bootstrap_source
+    assert "ProactiveService(" not in bootstrap_source
+    assert "_cron_generate_message" not in bootstrap_source
+    assert "_cron_deliver_message" not in bootstrap_source
+    assert "_load_proactive_config" not in bootstrap_source
