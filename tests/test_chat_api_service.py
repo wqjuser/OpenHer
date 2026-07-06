@@ -243,6 +243,7 @@ def test_app_context_and_bootstrap_expose_chat_api_service_boundary():
 
     assert "from server.chat_api_service import ChatApiService" in context_source
     assert "chat_api_service: ChatApiService | None = None" in context_source
-    assert "from server.chat_api_service import ChatApiService" in bootstrap_source
-    assert "context.chat_api_service = ChatApiService(" in bootstrap_source
+    assert "from server.session_runtime import build_session_runtime_services" in bootstrap_source
+    assert "context.chat_api_service = session_runtime.chat_api_service" in bootstrap_source
+    assert "context.chat_api_service = ChatApiService(" not in bootstrap_source
     assert '"chat_api_service": context.chat_api_service' in bootstrap_source

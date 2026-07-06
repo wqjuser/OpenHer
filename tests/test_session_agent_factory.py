@@ -174,9 +174,10 @@ def test_session_manager_delegates_agent_creation_to_factory():
 def test_bootstrap_wires_session_agent_factory_before_session_manager():
     bootstrap_source = (ROOT / "server" / "bootstrap.py").read_text(encoding="utf-8")
 
-    assert "from server.session_agent_factory import SessionAgentFactory" in bootstrap_source
-    assert "context.session_agent_factory = SessionAgentFactory(" in bootstrap_source
-    assert "agent_factory=context.session_agent_factory" in bootstrap_source
+    assert "from server.session_runtime import build_session_runtime_services" in bootstrap_source
+    assert "context.session_agent_factory = session_runtime.session_agent_factory" in bootstrap_source
+    assert "SessionAgentFactory(" not in bootstrap_source
+    assert "agent_factory=session_runtime.session_agent_factory" not in bootstrap_source
     assert '"session_agent_factory": context.session_agent_factory' in bootstrap_source
 
 

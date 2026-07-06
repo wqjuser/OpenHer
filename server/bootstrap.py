@@ -10,19 +10,13 @@ from typing import Any, Optional
 from agent.chat_agent import ChatAgent
 from agent.cron_scheduler import CronScheduler
 from persona import PersonaLoader
-from server.chat_api_service import ChatApiService
 from server.context import AppContext
 from server.persistence_runtime import build_persistence_runtime_services
 from server.persona_api_service import PersonaApiService
 from server.provider_runtime import build_provider_runtime_services
 from server.proactive_service import ProactiveService
-from server.session_agent_factory import SessionAgentFactory
-from server.session_manager import SessionManager
+from server.session_runtime import build_session_runtime_services
 from server.skill_runtime import build_skill_runtime_services
-from server.websocket_chat import WebSocketChatTurnService
-from server.websocket_demo import WebSocketDemoCommandService
-from server.websocket_persona_switch import WebSocketPersonaSwitchService
-from server.websocket_route_service import WebSocketRouteService
 
 
 SESSION_TTL_SECONDS = 30 * 60
@@ -150,70 +144,36 @@ async def startup(context: AppContext) -> None:
     memory_store = persistence_runtime.memory_store
     evermemos = persistence_runtime.evermemos
 
-    if context.llm_client:
-        context.session_agent_factory = SessionAgentFactory(
-            persona_loader=context.persona_loader,
-            llm_client=context.llm_client,
-            task_skill_engine=task_skill_engine,
-            modality_skill_engine=modality_skill_engine,
-            memory_store=memory_store,
-            state_store=state_store,
-            evermemos=evermemos,
-            genome_data_dir=context.genome_data_dir,
-        )
-        context.session_manager = SessionManager(
-            agent_factory=context.session_agent_factory,
-            state_store=state_store,
-            evermemos=evermemos,
-            ttl_seconds=SESSION_TTL_SECONDS,
-        )
-        context.chat_api_service = ChatApiService(
-            session_manager=context.session_manager,
-            chat_log_store=chat_log_store,
-        )
-
-        context.persona_switch_service = WebSocketPersonaSwitchService(
-            registry=context.ws_registry,
-            get_or_create_session=lambda session_id, persona_id, user_name=None, client_id=None: _get_or_create_session(
-                context, session_id, persona_id, user_name, client_id
-            ),
-            remove_session=lambda session_id: _remove_session(context, session_id),
-        )
-        context.ws_chat_turn_service = WebSocketChatTurnService(
-            registry=context.ws_registry,
-            get_or_create_session=lambda session_id, persona_id, user_name=None, client_id=None: _get_or_create_session(
-                context, session_id, persona_id, user_name, client_id
-            ),
-            chat_log_store=context.chat_log_store,
-        )
-        context.ws_demo_command_service = WebSocketDemoCommandService(
-            get_or_create_session=lambda session_id, persona_id, user_name=None, client_id=None: _get_or_create_session(
-                context, session_id, persona_id, user_name, client_id
-            ),
-            presets_file=str(base_dir / "demo" / "presets" / "showcase.yaml"),
-            proactive_delivery=context.ws_demo_proactive_service,
-        )
-    else:
-        context.session_agent_factory = None
-        context.session_manager = None
-        context.chat_api_service = ChatApiService(
-            session_manager=None,
-            chat_log_store=chat_log_store,
-        )
-        context.persona_switch_service = None
-        context.ws_chat_turn_service = None
-        context.ws_demo_command_service = None
-
-    context.ws_route_service = WebSocketRouteService(
-        registry=context.ws_registry,
-        session_manager=context.session_manager,
-        chat_turn_service=context.ws_chat_turn_service,
-        tts_service=context.ws_tts_service,
-        persona_switch_service=context.persona_switch_service,
-        demo_command_service=context.ws_demo_command_service,
+    session_runtime = build_session_runtime_services(
+        base_dir=base_dir,
+        llm_client=context.llm_client,
+        persona_loader=context.persona_loader,
+        task_skill_engine=task_skill_engine,
+        modality_skill_engine=modality_skill_engine,
+        memory_store=memory_store,
+        state_store=state_store,
+        evermemos=evermemos,
+        genome_data_dir=context.genome_data_dir,
+        chat_log_store=chat_log_store,
+        ws_registry=context.ws_registry,
+        ws_tts_service=context.ws_tts_service,
+        ws_demo_proactive_service=context.ws_demo_proactive_service,
+        get_or_create_session=lambda session_id, persona_id, user_name=None, client_id=None: _get_or_create_session(
+            context, session_id, persona_id, user_name, client_id
+        ),
+        remove_session=lambda session_id: _remove_session(context, session_id),
+        session_ttl_seconds=SESSION_TTL_SECONDS,
     )
+    context.session_agent_factory = session_runtime.session_agent_factory
+    context.session_manager = session_runtime.session_manager
+    context.chat_api_service = session_runtime.chat_api_service
+    context.persona_switch_service = session_runtime.persona_switch_service
+    context.ws_chat_turn_service = session_runtime.ws_chat_turn_service
+    context.ws_demo_command_service = session_runtime.ws_demo_command_service
+    context.ws_route_service = session_runtime.ws_route_service
+    session_manager = session_runtime.session_manager
 
-    if context.llm_client and context.session_manager:
+    if context.llm_client and session_manager:
         if cron_skills:
             context.cron_scheduler = CronScheduler()
             context.cron_scheduler.set_message_generator(
@@ -228,7 +188,7 @@ async def startup(context: AppContext) -> None:
         proactive_config = _load_proactive_config(base_dir)
         context.proactive_service = ProactiveService(
             state_store=state_store,
-            session_manager=context.session_manager,
+            session_manager=session_manager,
             evermemos=evermemos,
             ws_connections=context.ws_registry.session_connections,
             persist_agent=lambda agent: _persist_agent(context, agent),

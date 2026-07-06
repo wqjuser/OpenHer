@@ -303,6 +303,7 @@ def test_app_context_and_bootstrap_expose_websocket_route_service_boundary():
 
     assert "from server.websocket_route_service import WebSocketRouteService" in context_source
     assert "ws_route_service: WebSocketRouteService | None = None" in context_source
-    assert "from server.websocket_route_service import WebSocketRouteService" in bootstrap_source
-    assert "context.ws_route_service = WebSocketRouteService(" in bootstrap_source
+    assert "from server.session_runtime import build_session_runtime_services" in bootstrap_source
+    assert "context.ws_route_service = session_runtime.ws_route_service" in bootstrap_source
+    assert "context.ws_route_service = WebSocketRouteService(" not in bootstrap_source
     assert '"ws_route_service": context.ws_route_service' in bootstrap_source

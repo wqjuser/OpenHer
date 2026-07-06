@@ -117,10 +117,22 @@ def test_bootstrap_degrades_when_llm_provider_is_unavailable():
     assert "register_split_tools(" not in bootstrap_source
     assert "TaskSkillEngine(" not in bootstrap_source
     assert "ModalitySkillEngine(" not in bootstrap_source
-    assert "ChatApiService(" in bootstrap_source
-    assert "session_manager=None" in bootstrap_source
-    assert "context.session_agent_factory = None" in bootstrap_source
-    assert "context.session_manager = None" in bootstrap_source
-    assert "if context.llm_client and context.session_manager:" in bootstrap_source
+    assert "from server.session_runtime import build_session_runtime_services" in bootstrap_source
+    assert "session_runtime = build_session_runtime_services(" in bootstrap_source
+    assert "context.session_agent_factory = session_runtime.session_agent_factory" in bootstrap_source
+    assert "context.session_manager = session_runtime.session_manager" in bootstrap_source
+    assert "context.chat_api_service = session_runtime.chat_api_service" in bootstrap_source
+    assert "context.persona_switch_service = session_runtime.persona_switch_service" in bootstrap_source
+    assert "context.ws_chat_turn_service = session_runtime.ws_chat_turn_service" in bootstrap_source
+    assert "context.ws_demo_command_service = session_runtime.ws_demo_command_service" in bootstrap_source
+    assert "context.ws_route_service = session_runtime.ws_route_service" in bootstrap_source
+    assert "SessionAgentFactory(" not in bootstrap_source
+    assert "SessionManager(" not in bootstrap_source
+    assert "ChatApiService(" not in bootstrap_source
+    assert "WebSocketPersonaSwitchService(" not in bootstrap_source
+    assert "WebSocketChatTurnService(" not in bootstrap_source
+    assert "WebSocketDemoCommandService(" not in bootstrap_source
+    assert "WebSocketRouteService(" not in bootstrap_source
+    assert "if context.llm_client and session_manager:" in bootstrap_source
     assert "context.proactive_service = None" in bootstrap_source
     assert "context.proactive_task = None" in bootstrap_source
