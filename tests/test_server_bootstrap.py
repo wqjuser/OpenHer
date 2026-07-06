@@ -144,3 +144,13 @@ def test_bootstrap_degrades_when_llm_provider_is_unavailable():
     assert "_cron_generate_message" not in bootstrap_source
     assert "_cron_deliver_message" not in bootstrap_source
     assert "_load_proactive_config" not in bootstrap_source
+    assert "from server.shutdown_runtime import shutdown_runtime_services" in bootstrap_source
+    assert "messages = await shutdown_runtime_services(context)" in bootstrap_source
+    assert "for message in messages:" in bootstrap_source
+    assert "context.proactive_task.cancel()" not in bootstrap_source
+    assert "context.cron_scheduler.stop()" not in bootstrap_source
+    assert "context.session_manager.persist_all()" not in bootstrap_source
+    assert "context.state_store.close()" not in bootstrap_source
+    assert "context.memory_store.close()" not in bootstrap_source
+    assert "context.chat_log_store.close()" not in bootstrap_source
+    assert "context.evermemos.close_session(" not in bootstrap_source

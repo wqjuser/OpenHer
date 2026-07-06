@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -15,6 +14,7 @@ from server.persistence_runtime import build_persistence_runtime_services
 from server.persona_api_service import PersonaApiService
 from server.provider_runtime import build_provider_runtime_services
 from server.session_runtime import build_session_runtime_services
+from server.shutdown_runtime import shutdown_runtime_services
 from server.skill_runtime import build_skill_runtime_services
 
 
@@ -143,36 +143,9 @@ async def startup(context: AppContext) -> None:
 
 async def shutdown(context: AppContext) -> None:
     """Persist runtime state and close resources on server shutdown."""
-    if context.proactive_task and not context.proactive_task.done():
-        context.proactive_task.cancel()
-        try:
-            await context.proactive_task
-        except asyncio.CancelledError:
-            pass
-        context.proactive_task = None
-
-    if context.cron_scheduler:
-        context.cron_scheduler.stop()
-    if context.state_store:
-        if context.session_manager:
-            context.session_manager.persist_all()
-        context.state_store.close()
-    if context.memory_store:
-        context.memory_store.close()
-    if context.chat_log_store:
-        context.chat_log_store.close()
-    if context.evermemos and context.evermemos.available and context.session_manager:
-        tasks = [
-            context.evermemos.close_session(
-                user_id=agent.evermemos_uid,
-                persona_id=agent.persona.persona_id,
-                group_id=agent._group_id,
-            )
-            for agent in context.session_manager.active_agents()
-        ]
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-    print("✓ 状态已保存，服务关闭")
+    messages = await shutdown_runtime_services(context)
+    for message in messages:
+        print(message)
 
 
 def sync_legacy_globals(context: AppContext, module_globals: dict[str, object]) -> None:
