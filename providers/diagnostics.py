@@ -12,6 +12,59 @@ def provider_secret_configured(cfg: dict[str, Any], active: bool = False) -> boo
     return bool(cfg.get(key))
 
 
+def required_provider_doctor_check(label: str, cfg: dict[str, Any]) -> dict[str, Any]:
+    """Convert a required provider config into the local doctor check shape."""
+    configured = provider_secret_configured(cfg)
+    available = bool(cfg.get("available", False))
+    missing = str(cfg.get("missing_key_env") or "")
+    status = "ok" if available else "error"
+    message = f"{label} provider is configured" if available else f"Missing required {label} key: {missing}"
+    hint = (
+        "No action needed."
+        if available
+        else f"Set {missing} in .env, or switch DEFAULT_PROVIDER to a provider that is configured."
+    )
+    return _diagnostic_check(
+        status,
+        message,
+        hint,
+        {
+            "provider": str(cfg.get("provider") or ""),
+            "model": str(cfg.get("model") or ""),
+            "api_key_configured": configured,
+            "base_url_configured": bool(cfg.get("base_url")),
+            "missing_key_env": missing,
+        },
+    )
+
+
+def optional_provider_doctor_check(label: str, cfg: dict[str, Any]) -> dict[str, Any]:
+    """Convert an optional provider config into the local doctor check shape."""
+    configured = provider_secret_configured(cfg, active=True)
+    available = bool(cfg.get("available", False))
+    missing = str(cfg.get("missing_key_env") or "")
+    status = "ok" if available else "warn"
+    message = (
+        f"{label} provider is configured"
+        if available
+        else f"{label} provider is optional but not configured: {missing}"
+    )
+    hint = (
+        "No action needed."
+        if available
+        else f"optional: set {missing} in .env if you need {label.lower()} features."
+    )
+    details = {
+        "provider": str(cfg.get("provider") or ""),
+        "api_key_configured": configured,
+        "missing_key_env": missing,
+    }
+    model = str(cfg.get("model") or cfg.get("minimax_model") or "")
+    if model:
+        details["model"] = model
+    return _diagnostic_check(status, message, hint, details)
+
+
 def provider_setup_hint(missing_key_env: str) -> str:
     """Return a backend-facing setup hint for an unavailable provider."""
     if missing_key_env:
@@ -116,3 +169,12 @@ def memory_unavailable_reason(memory: dict[str, Any]) -> str:
     if not memory.get("configured", False):
         return "EverMemOS is not configured"
     return "EverMemOS is not available"
+
+
+def _diagnostic_check(status: str, message: str, setup_hint: str, details: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": status,
+        "message": message,
+        "setup_hint": setup_hint,
+        "details": details,
+    }

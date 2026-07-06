@@ -16,7 +16,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from providers.diagnostics import provider_secret_configured
+from providers.diagnostics import (
+    optional_provider_doctor_check,
+    provider_secret_configured,
+    required_provider_doctor_check,
+)
 
 STATUS_ORDER = {"ok": 0, "warn": 1, "error": 2}
 
@@ -40,9 +44,9 @@ def build_doctor_report(
     resolved_data_dir = resolve_data_dir(base_path, data_dir)
 
     checks = {
-        "llm": _llm_check(get_llm_config()),
-        "tts": _optional_provider_check("TTS", get_tts_config()),
-        "image": _optional_provider_check("Image", get_image_config()),
+        "llm": required_provider_doctor_check("LLM", get_llm_config()),
+        "tts": optional_provider_doctor_check("TTS", get_tts_config()),
+        "image": optional_provider_doctor_check("Image", get_image_config()),
         "memory": _memory_check(get_memory_config()),
         "data": _data_check(inventory_data_dir(resolved_data_dir)),
         "backup": _backup_check(resolved_data_dir, backup_path, verify_backup_archive),
@@ -81,57 +85,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.strict and report["status"] == "warn":
         return 1
     return 0
-
-
-def _llm_check(cfg: dict[str, Any]) -> dict[str, Any]:
-    configured = provider_secret_configured(cfg)
-    available = bool(cfg.get("available", False))
-    missing = str(cfg.get("missing_key_env") or "")
-    status = "ok" if available else "error"
-    message = "LLM provider is configured" if available else f"Missing required LLM key: {missing}"
-    hint = (
-        "No action needed."
-        if available
-        else f"Set {missing} in .env, or switch DEFAULT_PROVIDER to a provider that is configured."
-    )
-    return _check(
-        status,
-        message,
-        hint,
-        {
-            "provider": str(cfg.get("provider") or ""),
-            "model": str(cfg.get("model") or ""),
-            "api_key_configured": configured,
-            "base_url_configured": bool(cfg.get("base_url")),
-            "missing_key_env": missing,
-        },
-    )
-
-
-def _optional_provider_check(label: str, cfg: dict[str, Any]) -> dict[str, Any]:
-    configured = provider_secret_configured(cfg, active=True)
-    available = bool(cfg.get("available", False))
-    missing = str(cfg.get("missing_key_env") or "")
-    status = "ok" if available else "warn"
-    message = (
-        f"{label} provider is configured"
-        if available
-        else f"{label} provider is optional but not configured: {missing}"
-    )
-    hint = (
-        "No action needed."
-        if available
-        else f"optional: set {missing} in .env if you need {label.lower()} features."
-    )
-    details = {
-        "provider": str(cfg.get("provider") or ""),
-        "api_key_configured": configured,
-        "missing_key_env": missing,
-    }
-    model = str(cfg.get("model") or cfg.get("minimax_model") or "")
-    if model:
-        details["model"] = model
-    return _check(status, message, hint, details)
 
 
 def _memory_check(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -234,6 +187,7 @@ def _latest_backup(data_dir: Path) -> Path | None:
         reverse=True,
     )
     return archives[0] if archives else None
+
 
 def _check(status: str, message: str, setup_hint: str, details: dict[str, Any]) -> dict[str, Any]:
     return {

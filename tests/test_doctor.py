@@ -35,7 +35,11 @@ def test_doctor_script_exposes_secret_safe_local_contracts():
     assert "inventory_data_dir" in source
     assert "verify_backup_archive" in source
     assert "provider_secret_configured" in source
+    assert "required_provider_doctor_check" in source
+    assert "optional_provider_doctor_check" in source
     assert "def _has_secret" not in source
+    assert "def _llm_check" not in source
+    assert "def _optional_provider_check" not in source
     assert "api_key_configured" in source
     assert "setup_hint" in source
     assert "--strict" in source
