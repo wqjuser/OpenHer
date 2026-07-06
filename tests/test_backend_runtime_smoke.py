@@ -36,6 +36,12 @@ def test_backend_runtime_smoke_exposes_live_process_checks():
     assert "def stop_server" in source
     assert "def check_live_personas" in source
     assert "def check_live_history" in source
+    assert "smoke_contracts" in source
+    assert "validate_status_diagnostics" in source
+    assert "def _require_status" not in source
+    assert "def _require_dict" not in source
+    assert "def _format_result" not in source
+    assert "def _safe_value" not in source
     assert "OPENHER_API_TOKEN" in source
     assert "redact_known_secrets" in source
 

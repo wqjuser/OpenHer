@@ -25,12 +25,15 @@ def test_backend_websocket_smoke_exposes_live_ws_checks():
 
     assert "websockets.connect" in source
     assert "backend_runtime_smoke" in source
+    assert "smoke_contracts" in source
     assert "async def check_websocket_errors" in source
     assert "def websocket_url" in source
     assert "Invalid JSON" in source
     assert "service_unavailable" in source
     assert "OPENHER_API_TOKEN" in source
     assert "redact_known_secrets" in source
+    assert "def _format_result" not in source
+    assert "def _safe_value" not in source
 
 
 def test_backend_websocket_smoke_uses_temporary_data_dir():

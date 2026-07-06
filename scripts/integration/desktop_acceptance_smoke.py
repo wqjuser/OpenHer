@@ -26,6 +26,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.integration import backend_runtime_smoke
+from scripts.integration.smoke_contracts import (
+    bool_text,
+    format_result,
+    require_dict,
+    require_status,
+    safe_value,
+    validate_status_diagnostics,
+)
 
 
 SMOKE_CLIENT_ID = "__openher_desktop_acceptance_smoke__"
@@ -44,43 +52,14 @@ def websocket_url(base_url: str, token: str) -> str:
 
 def check_desktop_status_body(body: dict[str, Any]) -> dict[str, str]:
     """Validate the status payload consumed by AppState and SettingsView."""
-    if body.get("status") != "running":
-        raise AssertionError(f"status: expected running, got {body.get('status')!r}")
-
-    providers = _require_dict(body.get("providers"), "status.providers")
-    capabilities = _require_dict(body.get("capabilities"), "status.capabilities")
-
-    for key in ("llm", "tts", "image", "memory"):
-        if key not in providers:
-            raise AssertionError(f"status.providers: missing {key}")
-        provider = _require_dict(providers.get(key), f"status.providers.{key}")
-        if not isinstance(provider.get("setup_hint"), str):
-            raise AssertionError(f"status.providers.{key}.setup_hint must be a string")
-    for key in ("chat", "voice", "image", "memory"):
-        if key not in capabilities:
-            raise AssertionError(f"status.capabilities: missing {key}")
-        capability = _require_dict(capabilities.get(key), f"status.capabilities.{key}")
-        if not isinstance(capability.get("setup_hint"), str):
-            raise AssertionError(f"status.capabilities.{key}.setup_hint must be a string")
-
-    for key in ("chat", "voice", "image", "memory"):
-        capability = _require_dict(capabilities.get(key), f"status.capabilities.{key}")
-        if not isinstance(capability.get("available"), bool):
-            raise AssertionError(f"status.capabilities.{key}.available must be a boolean")
-        if "reason" not in capability:
-            raise AssertionError(f"status.capabilities.{key}.reason is required")
-
-    memory_provider = _require_dict(providers.get("memory"), "status.providers.memory")
-    for key in ("enabled", "configured", "available"):
-        if not isinstance(memory_provider.get(key), bool):
-            raise AssertionError(f"status.providers.memory.{key} must be a boolean")
+    diagnostics = validate_status_diagnostics(body, require_setup_hints=True)
 
     return {
         "status": "ok",
-        "chat_available": _bool_text(capabilities["chat"]["available"]),
-        "voice_available": _bool_text(capabilities["voice"]["available"]),
-        "image_available": _bool_text(capabilities["image"]["available"]),
-        "memory_available": _bool_text(capabilities["memory"]["available"]),
+        "chat_available": bool_text(diagnostics.chat["available"], "status.capabilities.chat.available"),
+        "voice_available": bool_text(diagnostics.voice["available"], "status.capabilities.voice.available"),
+        "image_available": bool_text(diagnostics.image["available"], "status.capabilities.image.available"),
+        "memory_available": bool_text(diagnostics.memory["available"], "status.capabilities.memory.available"),
     }
 
 
@@ -90,7 +69,7 @@ def check_desktop_personas_body(body: dict[str, Any]) -> tuple[str, dict[str, st
     if not isinstance(personas, list) or not personas:
         raise AssertionError("personas: expected a non-empty personas list")
 
-    first = _require_dict(personas[0], "personas[0]")
+    first = require_dict(personas[0], "personas[0]")
     persona_id = first.get("persona_id")
     name = first.get("name")
     if not isinstance(persona_id, str) or not persona_id:
@@ -110,9 +89,9 @@ def check_desktop_history_body(body: dict[str, Any]) -> dict[str, str]:
     messages = body.get("messages")
     total = body.get("total")
     if not isinstance(messages, list):
-        raise AssertionError(f"history: expected messages list, got {_safe_value(messages)}")
+        raise AssertionError(f"history: expected messages list, got {safe_value(messages)}")
     if not isinstance(total, int):
-        raise AssertionError(f"history: expected integer total, got {_safe_value(total)}")
+        raise AssertionError(f"history: expected integer total, got {safe_value(total)}")
     return {
         "status": "ok",
         "messages": str(len(messages)),
@@ -153,7 +132,7 @@ async def check_desktop_websocket_chat(
         if not chat_available:
             event = await _recv_event(websocket, timeout=min(timeout, 10.0))
             if event.get("type") != "error" or event.get("code") != "service_unavailable":
-                raise AssertionError(f"desktop_ws_unavailable: unexpected event {_safe_value(event)}")
+                raise AssertionError(f"desktop_ws_unavailable: unexpected event {safe_value(event)}")
             return "desktop_ws_chat", {
                 "status": "ok",
                 "chat_available": "false",
@@ -172,7 +151,7 @@ async def check_desktop_websocket_chat(
             )
             event_type = event.get("type")
             if event_type == "error":
-                raise AssertionError(f"desktop_ws_chat: unexpected error {_safe_value(event)}")
+                raise AssertionError(f"desktop_ws_chat: unexpected error {safe_value(event)}")
             if event_type == "chat_start":
                 saw_start = True
                 raw_session_id = event.get("session_id")
@@ -226,7 +205,7 @@ def run_smoke(timeout: float, chat_timeout: float) -> list[tuple[str, dict[str, 
                 "/api/personas",
                 token=token,
             )
-            backend_runtime_smoke._require_status(status_code, 200, "personas")
+            require_status(status_code, 200, "personas")
             persona_id, personas = check_desktop_personas_body(personas_body)
 
             status_code, history_body = backend_runtime_smoke.request_json(
@@ -235,7 +214,7 @@ def run_smoke(timeout: float, chat_timeout: float) -> list[tuple[str, dict[str, 
                 token=token,
                 params={"client_id": SMOKE_CLIENT_ID, "limit": "10"},
             )
-            backend_runtime_smoke._require_status(status_code, 200, "history")
+            require_status(status_code, 200, "history")
             history = check_desktop_history_body(history_body)
 
             ws_name, ws_result = asyncio.run(check_desktop_websocket_chat(
@@ -271,7 +250,7 @@ def main() -> int:
         return 1
 
     for name, result in results:
-        print(_format_result(name, result))
+        print(format_result(name, result))
     return 0
 
 
@@ -281,29 +260,8 @@ async def _recv_event(websocket: Any, *, timeout: float) -> dict[str, Any]:
         raw = raw.decode("utf-8")
     value = json.loads(raw)
     if not isinstance(value, dict):
-        raise AssertionError(f"expected WebSocket JSON object, got {_safe_value(value)}")
+        raise AssertionError(f"expected WebSocket JSON object, got {safe_value(value)}")
     return value
-
-
-def _require_dict(value: Any, label: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise AssertionError(f"{label}: expected object, got {_safe_value(value)}")
-    return value
-
-
-def _bool_text(value: Any) -> str:
-    if not isinstance(value, bool):
-        raise AssertionError(f"expected boolean, got {_safe_value(value)}")
-    return str(value).lower()
-
-
-def _format_result(name: str, result: dict[str, str]) -> str:
-    fields = " ".join(f"{key}={value}" for key, value in sorted(result.items()))
-    return f"{name}: {fields}"
-
-
-def _safe_value(value: Any) -> str:
-    return str(value).replace("\n", " ")[:500]
 
 
 if __name__ == "__main__":

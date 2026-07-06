@@ -27,10 +27,12 @@ def test_provider_smoke_script_is_explicitly_opt_in() -> None:
     assert "get_image_config" in source
     assert "get_tts" in source
     assert "get_image_gen" in source
+    assert "smoke_contracts" in source
     assert "async def smoke_llm_chat" in source
     assert "async def smoke_evermemos" in source
     assert "async def smoke_tts_provider" in source
     assert "async def smoke_image_provider" in source
+    assert "def _format_result" not in source
     assert "print(cfg" not in source
     assert "print(llm_cfg" not in source
     assert "print(memory_cfg" not in source

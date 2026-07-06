@@ -15,6 +15,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts.integration.smoke_contracts import format_result
+
 INTEGRATION_ENV = "RUN_OPENHER_INTEGRATION"
 TRUE_VALUES = {"1", "true", "yes", "on"}
 
@@ -195,11 +197,6 @@ async def run_smoke() -> list[tuple[str, dict[str, str]]]:
     return results
 
 
-def _format_result(name: str, result: dict[str, str]) -> str:
-    fields = " ".join(f"{key}={value}" for key, value in sorted(result.items()))
-    return f"{name}: {fields}"
-
-
 async def _async_main() -> int:
     load_dotenv(ROOT / ".env")
 
@@ -217,7 +214,7 @@ async def _async_main() -> int:
         return 1
 
     for name, result in results:
-        print(_format_result(name, result))
+        print(format_result(name, result))
     return 0
 
 

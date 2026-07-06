@@ -20,6 +20,15 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts.integration.smoke_contracts import (
+    bool_text,
+    format_result,
+    require_dict,
+    require_status,
+    safe_value,
+    validate_status_diagnostics,
+)
+
 SMOKE_CLIENT_ID = "__openher_acceptance_smoke__"
 
 
@@ -42,40 +51,26 @@ def build_client() -> TestClient:
 
 def check_status(client: TestClient) -> dict[str, str]:
     response = _request(client, "GET", "/api/status")
-    _require_status(response, 200, "status")
+    require_status(response.status_code, 200, "status", response.text)
     body = response.json()
-
-    capabilities = _require_dict(body.get("capabilities"), "status.capabilities")
-    providers = _require_dict(body.get("providers"), "status.providers")
-    chat = _require_dict(capabilities.get("chat"), "status.capabilities.chat")
-
-    if body.get("status") != "running":
-        raise AssertionError(f"status: expected running, got {body.get('status')!r}")
-    for key in ("llm", "tts", "image", "memory"):
-        if key not in providers:
-            raise AssertionError(f"status.providers: missing {key}")
-    for key in ("chat", "voice", "image", "memory"):
-        if key not in capabilities:
-            raise AssertionError(f"status.capabilities: missing {key}")
-    if not isinstance(chat.get("available"), bool):
-        raise AssertionError("status.capabilities.chat.available must be a boolean")
+    diagnostics = validate_status_diagnostics(body)
 
     return {
         "status": "ok",
-        "chat_available": str(chat["available"]).lower(),
+        "chat_available": bool_text(diagnostics.chat["available"], "status.capabilities.chat.available"),
         "personas": str(len(body.get("personas") or [])),
     }
 
 
 def check_personas(client: TestClient) -> str:
     response = _request(client, "GET", "/api/personas")
-    _require_status(response, 200, "personas")
+    require_status(response.status_code, 200, "personas", response.text)
     body = response.json()
     personas = body.get("personas")
     if not isinstance(personas, list) or not personas:
         raise AssertionError("personas: expected a non-empty personas list")
 
-    first = _require_dict(personas[0], "personas[0]")
+    first = require_dict(personas[0], "personas[0]")
     persona_id = first.get("persona_id")
     name = first.get("name")
     if not isinstance(persona_id, str) or not persona_id:
@@ -92,12 +87,12 @@ def check_chat_history_empty_state(client: TestClient, persona_id: str) -> dict[
         f"/api/chat/history/{persona_id}",
         params={"client_id": SMOKE_CLIENT_ID, "limit": 5},
     )
-    _require_status(response, 200, "history")
+    require_status(response.status_code, 200, "history", response.text)
     body = response.json()
     messages = body.get("messages")
     total = body.get("total")
     if messages != []:
-        raise AssertionError(f"history: expected empty messages, got {_safe_value(messages)}")
+        raise AssertionError(f"history: expected empty messages, got {safe_value(messages)}")
     if total != 0:
         raise AssertionError(f"history: expected total 0, got {total!r}")
     return {"status": "ok", "messages": "0", "total": "0"}
@@ -114,11 +109,11 @@ def check_chat_unavailable(client: TestClient, persona_id: str) -> dict[str, str
             "client_id": SMOKE_CLIENT_ID,
         },
     )
-    _require_status(response, 503, "chat_unavailable")
+    require_status(response.status_code, 503, "chat_unavailable", response.text)
     body = response.json()
     detail = str(body.get("detail") or "")
     if "Session manager is not initialized" not in detail:
-        raise AssertionError(f"chat_unavailable: unexpected detail {_safe_value(detail)}")
+        raise AssertionError(f"chat_unavailable: unexpected detail {safe_value(detail)}")
     return {"status": "ok", "http_status": "503"}
 
 
@@ -147,7 +142,7 @@ def main() -> int:
         return 1
 
     for name, result in results:
-        print(_format_result(name, result))
+        print(format_result(name, result))
     return 0
 
 
@@ -157,30 +152,6 @@ def _request(client: TestClient, method: str, path: str, **kwargs: Any):
     if token and "Authorization" not in headers:
         headers["Authorization"] = f"Bearer {token}"
     return client.request(method, path, headers=headers, **kwargs)
-
-
-def _require_status(response: Any, expected: int, label: str) -> None:
-    if response.status_code != expected:
-        raise AssertionError(
-            f"{label}: expected HTTP {expected}, got {response.status_code}: "
-            f"{_safe_value(response.text)}"
-        )
-
-
-def _require_dict(value: Any, label: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise AssertionError(f"{label}: expected object, got {_safe_value(value)}")
-    return value
-
-
-def _safe_value(value: Any) -> str:
-    text = str(value).replace("\n", " ")
-    return text[:500]
-
-
-def _format_result(name: str, result: dict[str, str]) -> str:
-    fields = " ".join(f"{key}={value}" for key, value in sorted(result.items()))
-    return f"{name}: {fields}"
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ def test_backend_chat_smoke_exposes_live_chat_checks():
     source = SCRIPT.read_text(encoding="utf-8")
 
     assert "backend_runtime_smoke" in source
+    assert "smoke_contracts" in source
     assert "TemporaryDirectory" in source
     assert "OPENHER_DATA_DIR" in source
     assert "OPENHER_API_TOKEN" in source
@@ -38,6 +39,11 @@ def test_backend_chat_smoke_exposes_live_chat_checks():
     assert 'f"/api/chat/history/{persona_id}"' in source
     assert "chat_available" in source
     assert "redact_known_secrets" in source
+    assert "backend_runtime_smoke._require_status" not in source
+    assert "backend_runtime_smoke._decode_json" not in source
+    assert "backend_runtime_smoke._auth_headers" not in source
+    assert "def _format_result" not in source
+    assert "def _safe_value" not in source
 
 
 def test_chat_unavailable_reason_reads_status_capability():

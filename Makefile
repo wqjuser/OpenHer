@@ -14,6 +14,7 @@ typecheck:
 compile:
 	$(PYTHON) -m py_compile main.py wechat_adapter.py
 	$(PYTHON) -m compileall agent engine memory persona providers server skills tests main.py wechat_adapter.py
+	$(PYTHON) -m py_compile scripts/integration/smoke_contracts.py
 	$(PYTHON) -m py_compile scripts/integration/provider_smoke.py
 	$(PYTHON) -m py_compile scripts/integration/backend_acceptance_smoke.py
 	$(PYTHON) -m py_compile scripts/integration/backend_runtime_smoke.py

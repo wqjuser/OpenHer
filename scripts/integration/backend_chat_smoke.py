@@ -20,6 +20,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.integration import backend_runtime_smoke
+from scripts.integration.smoke_contracts import auth_headers, decode_json, format_result, require_status, safe_value
 
 
 SMOKE_CLIENT_ID = "__openher_chat_smoke__"
@@ -36,7 +37,7 @@ def request_json_post(
     timeout: float = 60.0,
 ) -> tuple[int, dict[str, Any]]:
     body = json.dumps(payload).encode("utf-8")
-    headers = backend_runtime_smoke._auth_headers(token)
+    headers = auth_headers(token)
     headers["Content-Type"] = "application/json"
     request = urllib.request.Request(
         f"{base_url}{path}",
@@ -47,10 +48,10 @@ def request_json_post(
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read().decode("utf-8")
-            return int(response.status), backend_runtime_smoke._decode_json(raw)
+            return int(response.status), decode_json(raw)
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8")
-        return int(exc.code), backend_runtime_smoke._decode_json(raw)
+        return int(exc.code), decode_json(raw)
 
 
 def chat_unavailable_reason(status_body: dict[str, Any]) -> str | None:
@@ -73,11 +74,11 @@ def check_chat_turn_body(body: dict[str, Any]) -> dict[str, str]:
     response = body.get("response")
     modality = body.get("modality")
     if not isinstance(session_id, str) or not session_id:
-        raise AssertionError(f"chat_turn: missing session_id in {_safe_value(body)}")
+        raise AssertionError(f"chat_turn: missing session_id in {safe_value(body)}")
     if not isinstance(response, str) or not response.strip():
-        raise AssertionError(f"chat_turn: missing response in {_safe_value(body)}")
+        raise AssertionError(f"chat_turn: missing response in {safe_value(body)}")
     if not isinstance(modality, str) or not modality:
-        raise AssertionError(f"chat_turn: missing modality in {_safe_value(body)}")
+        raise AssertionError(f"chat_turn: missing modality in {safe_value(body)}")
     return {
         "status": "ok",
         "session_id": session_id,
@@ -96,12 +97,12 @@ def check_chat_history_body(body: dict[str, Any]) -> dict[str, str]:
     messages = body.get("messages")
     total = body.get("total")
     if not isinstance(messages, list):
-        raise AssertionError(f"history: expected messages list, got {_safe_value(messages)}")
+        raise AssertionError(f"history: expected messages list, got {safe_value(messages)}")
     if not isinstance(total, int):
-        raise AssertionError(f"history: expected integer total, got {_safe_value(total)}")
+        raise AssertionError(f"history: expected integer total, got {safe_value(total)}")
     roles = [message.get("role") for message in messages if isinstance(message, dict)]
     if "user" not in roles or "assistant" not in roles:
-        raise AssertionError(f"history: expected user and assistant messages, got {_safe_value(messages)}")
+        raise AssertionError(f"history: expected user and assistant messages, got {safe_value(messages)}")
     if total < 2:
         raise AssertionError(f"history: expected total >= 2, got {total}")
     return {"status": "ok", "messages": str(len(messages)), "total": str(total)}
@@ -126,7 +127,7 @@ def check_live_chat_turn(
         },
         timeout=chat_timeout,
     )
-    backend_runtime_smoke._require_status(status_code, 200, "chat_turn")
+    require_status(status_code, 200, "chat_turn")
     return "chat_turn", check_chat_turn_body(body)
 
 
@@ -136,7 +137,7 @@ def check_live_session_status(base_url: str, token: str, session_id: str) -> tup
         f"/api/session/{session_id}/status",
         token=token,
     )
-    backend_runtime_smoke._require_status(status_code, 200, "session_status")
+    require_status(status_code, 200, "session_status")
     return "session_status", check_session_status_body(body)
 
 
@@ -147,7 +148,7 @@ def check_live_chat_history(base_url: str, token: str, persona_id: str) -> tuple
         token=token,
         params={"client_id": SMOKE_CLIENT_ID, "limit": "10"},
     )
-    backend_runtime_smoke._require_status(status_code, 200, "history")
+    require_status(status_code, 200, "history")
     return "chat_history", check_chat_history_body(body)
 
 
@@ -224,17 +225,8 @@ def main() -> int:
         return 1
 
     for name, result in results:
-        print(_format_result(name, result))
+        print(format_result(name, result))
     return 0
-
-
-def _format_result(name: str, result: dict[str, str]) -> str:
-    fields = " ".join(f"{key}={value}" for key, value in sorted(result.items()))
-    return f"{name}: {fields}"
-
-
-def _safe_value(value: Any) -> str:
-    return str(value).replace("\n", " ")[:500]
 
 
 if __name__ == "__main__":

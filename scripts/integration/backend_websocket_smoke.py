@@ -21,6 +21,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.integration import backend_runtime_smoke
+from scripts.integration.smoke_contracts import format_result, safe_value
 
 
 SMOKE_CLIENT_ID = "__openher_websocket_smoke__"
@@ -39,7 +40,7 @@ async def check_websocket_errors(uri: str) -> list[tuple[str, dict[str, str]]]:
         await websocket.send("{not-json")
         invalid = _decode_event(await asyncio.wait_for(websocket.recv(), timeout=5))
         if invalid.get("type") != "error" or invalid.get("content") != "Invalid JSON":
-            raise AssertionError(f"invalid_json: unexpected event {_safe_value(invalid)}")
+            raise AssertionError(f"invalid_json: unexpected event {safe_value(invalid)}")
 
         await websocket.send(json.dumps({
             "type": "status",
@@ -47,11 +48,11 @@ async def check_websocket_errors(uri: str) -> list[tuple[str, dict[str, str]]]:
         }))
         unavailable = _decode_event(await asyncio.wait_for(websocket.recv(), timeout=5))
         if unavailable.get("type") != "error":
-            raise AssertionError(f"service_unavailable: expected error event, got {_safe_value(unavailable)}")
+            raise AssertionError(f"service_unavailable: expected error event, got {safe_value(unavailable)}")
         if unavailable.get("code") != "service_unavailable":
             raise AssertionError(
                 "service_unavailable: expected code=service_unavailable, "
-                f"got {_safe_value(unavailable)}"
+                f"got {safe_value(unavailable)}"
             )
 
     return [
@@ -104,7 +105,7 @@ def main() -> int:
         return 1
 
     for name, result in results:
-        print(_format_result(name, result))
+        print(format_result(name, result))
     return 0
 
 
@@ -113,17 +114,8 @@ def _decode_event(raw: str | bytes) -> dict[str, Any]:
         raw = raw.decode("utf-8")
     value = json.loads(raw)
     if not isinstance(value, dict):
-        raise AssertionError(f"expected WebSocket JSON object, got {_safe_value(value)}")
+        raise AssertionError(f"expected WebSocket JSON object, got {safe_value(value)}")
     return value
-
-
-def _format_result(name: str, result: dict[str, str]) -> str:
-    fields = " ".join(f"{key}={value}" for key, value in sorted(result.items()))
-    return f"{name}: {fields}"
-
-
-def _safe_value(value: Any) -> str:
-    return str(value).replace("\n", " ")[:500]
 
 
 if __name__ == "__main__":

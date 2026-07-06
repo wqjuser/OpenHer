@@ -32,6 +32,12 @@ def test_backend_acceptance_smoke_exposes_core_checks():
     assert "TestClient" in source
     assert "AppContext()" in source
     assert "create_app(context)" in source
+    assert "smoke_contracts" in source
+    assert "validate_status_diagnostics" in source
+    assert "def _require_status" not in source
+    assert "def _require_dict" not in source
+    assert "def _format_result" not in source
+    assert "def _safe_value" not in source
 
 
 def test_backend_acceptance_smoke_runs_in_process_core_flow():

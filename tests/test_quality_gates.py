@@ -136,6 +136,7 @@ def test_makefile_exposes_local_quality_gate_targets():
     assert "$(PYTHON) -m pyright" in text
     assert "$(PYTHON) -m compileall agent engine memory persona providers server skills tests main.py wechat_adapter.py" in text
     assert "swift build" in text
+    assert "$(PYTHON) -m py_compile scripts/integration/smoke_contracts.py" in text
     assert "$(PYTHON) -m py_compile scripts/integration/backend_acceptance_smoke.py" in text
     assert "$(PYTHON) scripts/integration/backend_acceptance_smoke.py" in text
     assert "$(PYTHON) -m py_compile scripts/integration/backend_runtime_smoke.py" in text

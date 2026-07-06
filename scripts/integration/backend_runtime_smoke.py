@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import socket
 import subprocess
@@ -22,6 +21,17 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from scripts.integration.smoke_contracts import (
+    auth_headers,
+    bool_text,
+    decode_json,
+    format_result,
+    require_dict,
+    require_status,
+    safe_value,
+    validate_status_diagnostics,
+)
 
 SMOKE_CLIENT_ID = "__openher_runtime_smoke__"
 
@@ -93,7 +103,7 @@ def wait_for_status(
             status_code, body = request_json(base_url, "/api/status", token=token, timeout=2.0)
             if status_code == 200 and body.get("status") == "running":
                 return body
-            last_error = f"HTTP {status_code}: {_safe_value(body)}"
+            last_error = f"HTTP {status_code}: {safe_value(body)}"
         except Exception as exc:
             last_error = f"{type(exc).__name__}: {exc}"
         time.sleep(0.25)
@@ -115,50 +125,35 @@ def request_json(
     query = f"?{urllib.parse.urlencode(params)}" if params else ""
     request = urllib.request.Request(
         f"{base_url}{path}{query}",
-        headers=_auth_headers(token),
+        headers=auth_headers(token),
         method="GET",
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read().decode("utf-8")
-            return int(response.status), _decode_json(raw)
+            return int(response.status), decode_json(raw)
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8")
-        return int(exc.code), _decode_json(raw)
+        return int(exc.code), decode_json(raw)
 
 
 def check_live_status(body: dict[str, Any]) -> dict[str, str]:
-    providers = _require_dict(body.get("providers"), "status.providers")
-    capabilities = _require_dict(body.get("capabilities"), "status.capabilities")
-    chat = _require_dict(capabilities.get("chat"), "status.capabilities.chat")
-    memory = _require_dict(capabilities.get("memory"), "status.capabilities.memory")
-
-    for key in ("llm", "tts", "image", "memory"):
-        if key not in providers:
-            raise AssertionError(f"status.providers: missing {key}")
-    for key in ("chat", "voice", "image", "memory"):
-        if key not in capabilities:
-            raise AssertionError(f"status.capabilities: missing {key}")
-    if not isinstance(chat.get("available"), bool):
-        raise AssertionError("status.capabilities.chat.available must be a boolean")
-    if not isinstance(memory.get("available"), bool):
-        raise AssertionError("status.capabilities.memory.available must be a boolean")
-
+    diagnostics = validate_status_diagnostics(body)
     return {
         "status": "ok",
-        "chat_available": str(chat["available"]).lower(),
-        "memory_available": str(memory["available"]).lower(),
+        "chat_available": bool_text(diagnostics.chat["available"], "status.capabilities.chat.available"),
+        "memory_available": bool_text(diagnostics.memory["available"], "status.capabilities.memory.available"),
     }
 
 
 def check_live_personas(base_url: str, token: str) -> tuple[str, dict[str, str]]:
     status_code, body = request_json(base_url, "/api/personas", token=token)
-    _require_status(status_code, 200, "personas")
+    require_status(status_code, 200, "personas")
     personas = body.get("personas")
     if not isinstance(personas, list) or not personas:
         raise AssertionError("personas: expected a non-empty personas list")
 
-    first = _require_dict(personas[0], "personas[0]")
+    first = require_dict(personas[0], "personas[0]")
     persona_id = first.get("persona_id")
     if not isinstance(persona_id, str) or not persona_id:
         raise AssertionError("personas[0].persona_id must be a non-empty string")
@@ -179,9 +174,9 @@ def check_live_history(base_url: str, token: str, persona_id: str) -> dict[str, 
         token=token,
         params={"client_id": f"{SMOKE_CLIENT_ID}_{os.getpid()}", "limit": "5"},
     )
-    _require_status(status_code, 200, "history")
+    require_status(status_code, 200, "history")
     if body.get("messages") != []:
-        raise AssertionError(f"history: expected empty messages, got {_safe_value(body.get('messages'))}")
+        raise AssertionError(f"history: expected empty messages, got {safe_value(body.get('messages'))}")
     if body.get("total") != 0:
         raise AssertionError(f"history: expected total 0, got {body.get('total')!r}")
     return {"status": "ok", "messages": "0", "total": "0"}
@@ -233,44 +228,8 @@ def main() -> int:
         return 1
 
     for name, result in results:
-        print(_format_result(name, result))
+        print(format_result(name, result))
     return 0
-
-
-def _auth_headers(token: str) -> dict[str, str]:
-    headers = {"Accept": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
-
-
-def _decode_json(raw: str) -> dict[str, Any]:
-    if not raw:
-        return {}
-    value = json.loads(raw)
-    if not isinstance(value, dict):
-        raise AssertionError(f"expected JSON object, got {_safe_value(value)}")
-    return value
-
-
-def _require_status(status_code: int, expected: int, label: str) -> None:
-    if status_code != expected:
-        raise AssertionError(f"{label}: expected HTTP {expected}, got {status_code}")
-
-
-def _require_dict(value: Any, label: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise AssertionError(f"{label}: expected object, got {_safe_value(value)}")
-    return value
-
-
-def _format_result(name: str, result: dict[str, str]) -> str:
-    fields = " ".join(f"{key}={value}" for key, value in sorted(result.items()))
-    return f"{name}: {fields}"
-
-
-def _safe_value(value: Any) -> str:
-    return str(value).replace("\n", " ")[:500]
 
 
 def _log_tail(log_file: TextIO, limit: int = 4000) -> str:

@@ -28,8 +28,10 @@ def test_desktop_acceptance_smoke_exposes_startup_and_chat_flow_checks():
     assert "TemporaryDirectory" in source
     assert "OPENHER_DATA_DIR" in source
     assert "OPENHER_API_TOKEN" in source
+    assert "smoke_contracts" in source
+    assert "validate_status_diagnostics" in source
     assert "def check_desktop_status_body" in source
-    assert '"setup_hint"' in source
+    assert "require_setup_hints=True" in source
     assert "def check_desktop_personas_body" in source
     assert "def check_desktop_history_body" in source
     assert "async def check_desktop_websocket_chat" in source
@@ -40,6 +42,10 @@ def test_desktop_acceptance_smoke_exposes_startup_and_chat_flow_checks():
     assert '"chat_end"' in source
     assert "chat_available" in source
     assert "redact_known_secrets" in source
+    assert "def _require_dict" not in source
+    assert "def _format_result" not in source
+    assert "def _safe_value" not in source
+    assert "def _bool_text" not in source
 
 
 def test_desktop_websocket_url_matches_swift_connection_mapping():
