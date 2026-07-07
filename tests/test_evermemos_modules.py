@@ -10,6 +10,7 @@ def test_evermemos_support_modules_export_boundaries():
     types = importlib.import_module("providers.memory.evermemos.types")
     circuit = importlib.import_module("providers.memory.evermemos.circuit_breaker")
     protocol = importlib.import_module("providers.memory.evermemos.protocol")
+    projection = importlib.import_module("providers.memory.evermemos.projection")
 
     assert hasattr(config, "_load_memory_config")
     assert hasattr(config, "_CFG")
@@ -20,6 +21,9 @@ def test_evermemos_support_modules_export_boundaries():
     assert hasattr(protocol, "build_cloud_search_body")
     assert hasattr(protocol, "build_memory_batch_body")
     assert hasattr(protocol, "build_legacy_memory_payload")
+    assert hasattr(projection, "build_session_context_from_memories")
+    assert hasattr(projection, "build_relevant_memory_projection")
+    assert hasattr(projection, "relationship_vector_from_context")
 
 
 def test_evermemos_client_delegates_support_boundaries_to_modules():
@@ -37,7 +41,9 @@ def test_evermemos_client_delegates_support_boundaries_to_modules():
         "_CircuitBreaker, _NoOpBreaker"
     ) in source
     assert "from providers.memory.evermemos.protocol import" in source
+    assert "from providers.memory.evermemos.projection import" in source
     assert "class SessionContext" not in source
     assert "class _CircuitBreaker" not in source
     assert "def _load_memory_config" not in source
     assert "def build_cloud_search_body" not in source
+    assert "def build_session_context_from_memories" not in source

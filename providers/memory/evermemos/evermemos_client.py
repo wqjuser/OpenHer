@@ -23,7 +23,6 @@ API 变化 (Cloud → Self-Hosted):
 from __future__ import annotations
 
 import asyncio
-import math
 import os
 import time
 from typing import TYPE_CHECKING, Optional
@@ -35,6 +34,14 @@ except ImportError:
 
 from providers.memory.evermemos.circuit_breaker import _CircuitBreaker, _NoOpBreaker
 from providers.memory.evermemos.config import _CFG, _fmt_latency, _load_memory_config
+from providers.memory.evermemos.projection import (
+    build_relevant_memory_projection,
+    build_session_context_from_memories,
+    empty_session_context,
+    extract_search_memories,
+    flatten_memory_results,
+    relationship_vector_from_context,
+)
 from providers.memory.evermemos.protocol import (
     GET_PATHS,
     STORE_PATHS,
@@ -276,15 +283,7 @@ class EverMemOSClient:
 
         Returns a zero-context SessionContext if unavailable or error.
         """
-        empty = SessionContext(
-            user_profile="",
-            episode_summary="",
-            foresight_text="",
-            interaction_count=0,
-            has_history=False,
-            relationship_depth=0.0,
-            pending_foresight=0.0,
-        )
+        empty = empty_session_context()
 
         if not self.available:
             return empty
@@ -347,124 +346,23 @@ class EverMemOSClient:
                 _get_type("foresight"),
             )
 
-            # Merge all memories from parallel responses
-            all_memories = []
-            for resp_data in results:
-                if resp_data and resp_data.get("result"):
-                    mems = resp_data["result"].get("memories", [])
-                    if isinstance(mems, list):
-                        all_memories.extend(mems)
+            all_memories = flatten_memory_results(results)
 
             if not all_memories:
                 self._cb.record_success()
                 return empty
 
-            profile_lines = []
-            fact_lines = []
-            episode_lines = []
-            foresight_lines = []
-            interaction_count = 0
-
-            for mem in all_memories:
-                # Determine memory type from response structure
-                if "profile_data" in mem:
-                    # Profile type
-                    profile_data = mem.get("profile_data", {})
-                    if profile_data:
-                        for k, v in profile_data.items():
-                            if v and k not in ("id", "memory_type", "user_id", "user_name"):
-                                profile_lines.append(f"{k}: {v}")
-                    interaction_count += mem.get("memcell_count", 0) or 0
-
-                elif "atomic_fact" in mem:
-                    # EventLog type
-                    fact = mem.get("atomic_fact", "")
-                    if fact and fact.strip():
-                        fact_lines.append(fact.strip())
-
-                elif "episode_id" in mem or "summary" in mem:
-                    # Episodic memory type
-                    summary = (
-                        mem.get("summary")
-                        or mem.get("narrative")
-                        or mem.get("content")
-                    )
-                    if summary and summary.strip():
-                        episode_lines.append(summary.strip())
-
-                elif "foresight" in mem:
-                    # Foresight type
-                    content = (
-                        mem.get("content")
-                        or mem.get("foresight")
-                        or mem.get("prediction")
-                        or mem.get("summary")
-                    )
-                    if content and content.strip():
-                        foresight_lines.append(content.strip())
-
-            if interaction_count == 0:
-                interaction_count = len(all_memories)
-
-            # Build readable profile text
-            max_facts = _CFG["facts_max_items"]
-            max_profile = _CFG["profile_max_items"]
-            parts = []
-            if profile_lines:
-                parts.append("【用户画像】" + "；".join(profile_lines[:max_profile]))
-            if fact_lines:
-                parts.append("【已知偏好/事实】" + "；".join(fact_lines[:max_facts]))
-            user_profile = "\n".join(parts) if parts else ""
-
-            # Episode summary (latest 3)
-            max_eps = _CFG["episodes_max_items"]
-            episode_summary = "；".join(episode_lines[-max_eps:]) if episode_lines else ""
-
-            # P1+P2b: Foresight text with item count AND per-item char budget
-            max_fs = _CFG["foresight_max_items"]
-            max_fs_chars = _CFG.get("foresight_max_chars", 200)
-            foresight_text = ""
-            if foresight_lines:
-                fs_items = [s[:max_fs_chars] for s in foresight_lines[:max_fs]]
-                foresight_text = "；".join(fs_items)
-
-            # Semantic relationship depth (data richness based)
-            data_richness = (
-                len(fact_lines) * 2
-                + len(profile_lines) * 3
-                + len(episode_lines) * 5
-            )
-            depth = 1.0 - math.exp(-data_richness / 30.0) if data_richness > 0 else 0.0
-            if data_richness == 0 and interaction_count > 0:
-                depth = 1.0 - math.exp(-interaction_count / 40.0)
-
-            foresight_count = len(foresight_lines)
-            pending_fs = 1.0 - math.exp(-foresight_count / 1.5) if foresight_count > 0 else 0.0
-
+            ctx = build_session_context_from_memories(all_memories, _CFG)
             self._cb.record_success()
             elapsed_ms = (time.monotonic() - t0) * 1000
-
-            ctx = SessionContext(
-                user_profile=user_profile,
-                episode_summary=episode_summary,
-                foresight_text=foresight_text,
-                interaction_count=interaction_count,
-                has_history=bool(all_memories),
-                relationship_depth=round(depth, 3),
-                pending_foresight=round(pending_fs, 3),
-                _fact_count=len(fact_lines),
-                _profile_count=len(profile_lines),
-                _episode_count=len(episode_lines),
-                _foresight_count=foresight_count,
-            )
 
             if ctx.has_history and _CFG["log_hit_rates"]:
                 print(
                     f"  [evermemos] 📚 loaded{_fmt_latency(elapsed_ms)}: "
-                    f"{interaction_count} interactions, depth={depth:.2f}, "
-                    f"facts={len(fact_lines)}, profile={len(profile_lines)}, "
-                    f"episodes={len(episode_lines)}, foresights={foresight_count}"
-                    + (f" [foresight_text: {foresight_text[:40]}...]" if foresight_text else "")
+                    f"{ctx.interaction_count} interactions, depth={ctx.relationship_depth:.2f}, "
+                    f"facts={ctx._fact_count}, profile={ctx._profile_count}, "
+                    f"episodes={ctx._episode_count}, foresights={ctx._foresight_count}"
+                    + (f" [foresight_text: {ctx.foresight_text[:40]}...]" if ctx.foresight_text else "")
                 )
 
             return ctx
@@ -608,15 +506,7 @@ class EverMemOSClient:
         Build the 4D relationship PRIOR vector from SessionContext.
         These are deterministic priors; Critic provides deltas each turn.
         """
-        depth = ctx.relationship_depth
-        trust = 1.0 - math.exp(-ctx.interaction_count / 40.0) if ctx.interaction_count > 0 else 0.0
-
-        return {
-            'relationship_depth': round(depth, 3),
-            'emotional_valence': 0.0,
-            'trust_level': round(trust, 3),
-            'pending_foresight': round(ctx.pending_foresight, 3),
-        }
+        return relationship_vector_from_context(ctx)
 
     # ─────────────────────────────────────────────────────────────
     # Query-Based Relevance Retrieval (Phase 3) — P1 enhanced
@@ -689,75 +579,25 @@ class EverMemOSClient:
                 self._cb.record_success()
                 return "", "", ""
 
-            data = resp.json()
-            memories = []
-            if "data" in data:
-                search_data = data.get("data", {})
-                memories.extend(search_data.get("episodes", []) or [])
-                memories.extend(search_data.get("profiles", []) or [])
-                for episode in search_data.get("episodes", []) or []:
-                    for fact in episode.get("atomic_facts", []) or []:
-                        fact_text = (
-                            fact.get("content")
-                            or fact.get("atomic_fact")
-                            or fact.get("text")
-                            or fact.get("fact")
-                        )
-                        if fact_text:
-                            memories.append({"atomic_fact": fact_text})
-            else:
-                result = data.get("result", {})
-                memories = result.get("memories", [])
+            memories = extract_search_memories(resp.json())
 
             if not memories:
                 print(f"  [evermemos] 🔍 search: 0 results{_fmt_latency(elapsed_ms)} [{retrieve_method}]")
                 self._cb.record_success()
                 return "", "", ""
 
-            facts = []
-            episodes = []
-            profile_attrs = []
-
-            max_facts = _CFG["facts_max_items"]
-            max_eps = _CFG["episodes_max_items"]
-            max_profile = _CFG["profile_max_items"]
-
-            for mem in memories:
-                if "atomic_fact" in mem and len(facts) < max_facts:
-                    fact = mem.get("atomic_fact", "")
-                    if fact and fact.strip():
-                        facts.append(fact.strip())
-
-                elif ("episode_id" in mem or "summary" in mem) and len(episodes) < max_eps:
-                    summary = (
-                        mem.get("summary")
-                        or mem.get("narrative")
-                        or mem.get("content")
-                    )
-                    if summary and summary.strip():
-                        episodes.append(summary.strip())
-
-                elif "profile_data" in mem and len(profile_attrs) < max_profile:
-                    profile_data = mem.get("profile_data", {})
-                    if profile_data:
-                        for k, v in profile_data.items():
-                            if v and len(profile_attrs) < max_profile:
-                                if k not in ("id", "memory_type", "user_id", "user_name"):
-                                    profile_attrs.append(f"{k}: {v}")
-
-            relevant_facts = "；".join(facts) if facts else ""
-            relevant_episodes = "；".join(episodes) if episodes else ""
-            relevant_profile = "；".join(profile_attrs) if profile_attrs else ""
+            projection = build_relevant_memory_projection(memories, _CFG)
 
             self._cb.record_success()
 
             if _CFG["log_hit_rates"]:
                 print(
                     f"  [evermemos] 🔍 search{_fmt_latency(elapsed_ms)} [{retrieve_method}]: "
-                    f"facts={len(facts)}, episodes={len(episodes)}, profile={len(profile_attrs)}"
+                    f"facts={len(projection.facts)}, episodes={len(projection.episodes)}, "
+                    f"profile={len(projection.profile_attrs)}"
                 )
 
-            return relevant_facts, relevant_episodes, relevant_profile
+            return projection.as_tuple()
 
         except Exception as e:
             self._cb.record_failure()
