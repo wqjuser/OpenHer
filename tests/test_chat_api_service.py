@@ -240,10 +240,11 @@ def test_chat_routes_delegate_session_status_and_history_to_service_boundary():
 def test_app_context_and_bootstrap_expose_chat_api_service_boundary():
     context_source = (ROOT / "server/context.py").read_text(encoding="utf-8")
     bootstrap_source = (ROOT / "server/bootstrap.py").read_text(encoding="utf-8")
+    legacy_source = (ROOT / "server/legacy_compat.py").read_text(encoding="utf-8")
 
     assert "from server.chat_api_service import ChatApiService" in context_source
     assert "chat_api_service: ChatApiService | None = None" in context_source
     assert "from server.session_runtime import build_session_runtime_services" in bootstrap_source
     assert "context.chat_api_service = session_runtime.chat_api_service" in bootstrap_source
     assert "context.chat_api_service = ChatApiService(" not in bootstrap_source
-    assert '"chat_api_service": context.chat_api_service' in bootstrap_source
+    assert '"chat_api_service": context.chat_api_service' in legacy_source

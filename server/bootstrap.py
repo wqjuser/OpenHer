@@ -146,34 +146,3 @@ async def shutdown(context: AppContext) -> None:
     messages = await shutdown_runtime_services(context)
     for message in messages:
         print(message)
-
-
-def sync_legacy_globals(context: AppContext, module_globals: dict[str, object]) -> None:
-    """Expose context services through legacy `main.py` global names."""
-    module_globals.update(
-        {
-            "persona_loader": context.persona_loader,
-            "llm_client": context.llm_client,
-            "tts_engine": context.tts_engine,
-            "task_skill_engine": context.task_skill_engine,
-            "modality_skill_engine": context.modality_skill_engine,
-            "state_store": context.state_store,
-            "chat_log_store": context.chat_log_store,
-            "memory_store": context.memory_store,
-            "evermemos": context.evermemos,
-            "cron_scheduler": context.cron_scheduler,
-            "session_agent_factory": context.session_agent_factory,
-            "session_manager": context.session_manager,
-            "chat_api_service": context.chat_api_service,
-            "media_api_service": context.media_api_service,
-            "persona_api_service": context.persona_api_service,
-            "proactive_service": context.proactive_service,
-            "ws_demo_command_service": context.ws_demo_command_service,
-            "ws_route_service": context.ws_route_service,
-            "ws_chat_turn_service": context.ws_chat_turn_service,
-            "persona_switch_service": context.persona_switch_service,
-            "ws_tts_service": context.ws_tts_service,
-            "genome_data_dir": context.genome_data_dir,
-            "_proactive_task": context.proactive_task,
-        }
-    )

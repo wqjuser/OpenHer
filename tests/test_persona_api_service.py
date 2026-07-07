@@ -161,9 +161,10 @@ def test_persona_routes_delegate_metadata_and_media_to_service_boundary():
 def test_app_context_and_bootstrap_expose_persona_api_service_boundary():
     context_source = (ROOT / "server/context.py").read_text(encoding="utf-8")
     bootstrap_source = (ROOT / "server/bootstrap.py").read_text(encoding="utf-8")
+    legacy_source = (ROOT / "server/legacy_compat.py").read_text(encoding="utf-8")
 
     assert "from server.persona_api_service import PersonaApiService" in context_source
     assert "persona_api_service: PersonaApiService | None = None" in context_source
     assert "from server.persona_api_service import PersonaApiService" in bootstrap_source
     assert "context.persona_api_service = PersonaApiService(" in bootstrap_source
-    assert '"persona_api_service": context.persona_api_service' in bootstrap_source
+    assert '"persona_api_service": context.persona_api_service' in legacy_source
