@@ -26,7 +26,6 @@ import asyncio
 import math
 import os
 import time
-import uuid
 from typing import TYPE_CHECKING, Optional
 
 try:
@@ -36,6 +35,20 @@ except ImportError:
 
 from providers.memory.evermemos.circuit_breaker import _CircuitBreaker, _NoOpBreaker
 from providers.memory.evermemos.config import _CFG, _fmt_latency, _load_memory_config
+from providers.memory.evermemos.protocol import (
+    GET_PATHS,
+    STORE_PATHS,
+    build_cloud_search_body,
+    build_compat_get_body,
+    build_health_search_body,
+    build_legacy_memory_payload,
+    build_legacy_search_body,
+    build_memory_batch_body,
+    build_oss_search_body,
+    build_v1_get_body,
+    normalize_search_method,
+    search_top_k,
+)
 from providers.memory.evermemos.types import SessionContext
 
 if TYPE_CHECKING:
@@ -120,16 +133,10 @@ class EverMemOSClient:
         if not self._initialized or not self._client:
             return False
         try:
-            health_body = {
-                "filters": {"user_id": "__healthcheck__"},
-                "query": "__healthcheck__",
-                "method": "keyword",
-                "top_k": 1,
-            }
             resp = await self._client.request(
                 "POST",
                 "/memories/search",
-                json=health_body,
+                json=build_health_search_body(),
                 timeout=8.0,
             )
             if resp.status_code in (404, 405):
@@ -179,17 +186,11 @@ class EverMemOSClient:
         if not self._client:
             return False
 
-        body = {
-            "user_id": user_id,
-            "app_id": "openher",
-            "project_id": "openher",
-            "session_id": group_id or user_id,
-            "messages": messages,
-        }
+        body = build_memory_batch_body(user_id, group_id, messages)
 
         last_resp = None
         success_path = ""
-        for path in ("/memories", "/memory/add"):
+        for path in STORE_PATHS:
             resp = await self._client.post(path, json=body)
             last_resp = resp
             print(f"  [evermemos] POST {label} {path}: HTTP {resp.status_code} gid={group_id}")
@@ -218,19 +219,12 @@ class EverMemOSClient:
 
         # Older self-hosted builds accepted one flat message per POST.
         for index, message in enumerate(messages):
-            legacy_payload = {
-                "content": message["content"],
-                "create_time": time.strftime("%Y-%m-%dT%H:%M:%S+08:00", time.localtime(message["timestamp"] / 1000)),
-                "message_id": str(uuid.uuid4()),
-                "user_id": user_id,
-                "sender": message["sender_id"],
-                "sender_name": message.get("sender_name"),
-                "role": message["role"],
-            }
-            if group_id:
-                legacy_payload["group_id"] = group_id
-            if flush_after and index == len(messages) - 1:
-                legacy_payload["flush"] = True
+            legacy_payload = build_legacy_memory_payload(
+                user_id=user_id,
+                group_id=group_id,
+                message=message,
+                flush=flush_after and index == len(messages) - 1,
+            )
             legacy_resp = await self._client.post("/memories", json=legacy_payload)
             print(
                 f"  [evermemos] POST {label} legacy {message.get('role', 'message')}: "
@@ -309,18 +303,10 @@ class EverMemOSClient:
                         "episodic_memory": "episode",
                     }.get(mtype)
                     if v1_type:
-                        v1_body = {
-                            "user_id": user_id,
-                            "app_id": "openher",
-                            "project_id": "openher",
-                            "memory_type": v1_type,
-                            "page_size": 20,
-                            "sort_order": "desc",
-                        }
                         resp = await self._request_json_candidates(
                             "POST",
-                            ("/memory/get", "/memories/get"),
-                            v1_body,
+                            GET_PATHS,
+                            build_v1_get_body(user_id, v1_type),
                             timeout,
                         )
                         if resp and resp.status_code == 200:
@@ -328,19 +314,10 @@ class EverMemOSClient:
                             key = "profiles" if v1_type == "profile" else "episodes"
                             return {"result": {"memories": data.get(key, [])}}
                         if resp and resp.status_code in (404, 405):
-                            compat_body = {
-                                "user_id": user_id,
-                                "app_id": "openher",
-                                "project_id": "openher",
-                                "memory_type": mtype,
-                                "page_size": 20,
-                                "sort_order": "desc",
-                                "filters": {"user_id": user_id},
-                            }
                             resp = await client.request(
                                 "POST",
                                 "/memories/get",
-                                json=compat_body,
+                                json=build_compat_get_body(user_id, mtype),
                                 timeout=timeout,
                             )
                             if resp.status_code == 200:
@@ -679,57 +656,28 @@ class EverMemOSClient:
         try:
             # EverMemOS cloud SDK shape:
             # memories.search(filters={...}, query=..., method=..., top_k=...)
-            method_aliases = {
-                "rrf": "keyword",
-            }
-            method = method_aliases.get(retrieve_method, retrieve_method)
-            if method not in {"keyword", "vector", "hybrid", "agentic"}:
-                method = "keyword"
-            top_k = max(_CFG["facts_max_items"], _CFG["episodes_max_items"], _CFG["profile_max_items"])
-            body = {
-                "filters": {"user_id": user_id},
-                "query": query,
-                "method": method,
-                "top_k": top_k,
-            }
+            method = normalize_search_method(retrieve_method)
+            top_k = search_top_k(_CFG)
             resp = await client.request(
                 "POST",
                 "/memories/search",
-                json=body,
+                json=build_cloud_search_body(query, user_id, method, top_k),
                 timeout=_CFG["search_timeout_sec"],
             )
 
             if resp and resp.status_code in (404, 405):
-                oss_body = {
-                    "query": query,
-                    "method": method,
-                    "user_id": user_id,
-                    "app_id": "openher",
-                    "project_id": "openher",
-                    "include_profile": True,
-                    "top_k": top_k,
-                }
-                if group_id:
-                    oss_body["filters"] = {"session_id": group_id}
                 resp = await client.request(
                     "POST",
                     "/memory/search",
-                    json=oss_body,
+                    json=build_oss_search_body(query, user_id, group_id, method, top_k),
                     timeout=_CFG["search_timeout_sec"],
                 )
 
             if resp and resp.status_code in (404, 405):
-                legacy_body: dict[str, object] = {
-                    "query": query,
-                    "retrieve_method": retrieve_method,
-                    "user_id": user_id,
-                }
-                if group_id:
-                    legacy_body["group_ids"] = [group_id]
                 resp = await client.request(
                     "GET",
                     "/memories/search",
-                    json=legacy_body,
+                    json=build_legacy_search_body(query, user_id, group_id, retrieve_method),
                     timeout=_CFG["search_timeout_sec"],
                 )
 
