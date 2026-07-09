@@ -50,8 +50,13 @@ from providers.memory.evermemos.protocol import (
     build_health_search_body,
     build_legacy_memory_payload,
     build_legacy_search_body,
+    build_memory_flush_body,
     build_memory_batch_body,
+    build_oss_health_search_body,
     build_oss_search_body,
+    build_proactive_messages,
+    build_session_flush_messages,
+    build_turn_messages,
     build_v1_get_body,
     normalize_search_method,
     search_top_k,
@@ -150,14 +155,7 @@ class EverMemOSClient:
                 resp = await self._client.request(
                     "POST",
                     "/memory/search",
-                    json={
-                        "query": "__healthcheck__",
-                        "method": "keyword",
-                        "user_id": "__healthcheck__",
-                        "app_id": "openher",
-                        "project_id": "openher",
-                        "top_k": 1,
-                    },
+                    json=build_oss_health_search_body(),
                     timeout=8.0,
                 )
             if resp.status_code == 401:
@@ -211,11 +209,7 @@ class EverMemOSClient:
             if flush_after and success_path == "/memory/add":
                 flush_resp = await self._client.post(
                     "/memory/flush",
-                    json={
-                        "session_id": group_id or user_id,
-                        "app_id": "openher",
-                        "project_id": "openher",
-                    },
+                    json=build_memory_flush_body(user_id, group_id),
                 )
                 print(f"  [evermemos] POST {label} /memory/flush: HTTP {flush_resp.status_code} gid={group_id}")
             self._cb.record_success()
@@ -401,22 +395,15 @@ class EverMemOSClient:
                 group_id=group_id,
                 label="turn",
                 flush_after=True,
-                messages=[
-                    {
-                        "content": user_message,
-                        "timestamp": now_ms,
-                        "sender_id": user_id,
-                        "sender_name": user_name,
-                        "role": "user",
-                    },
-                    {
-                        "content": agent_reply,
-                        "timestamp": now_ms + 1,
-                        "sender_id": persona_id,
-                        "sender_name": persona_name,
-                        "role": "assistant",
-                    },
-                ],
+                messages=build_turn_messages(
+                    user_id=user_id,
+                    persona_id=persona_id,
+                    persona_name=persona_name,
+                    user_name=user_name,
+                    user_message=user_message,
+                    agent_reply=agent_reply,
+                    timestamp_ms=now_ms,
+                ),
             )
 
         except Exception as e:
@@ -447,15 +434,12 @@ class EverMemOSClient:
                 group_id=group_id,
                 label="proactive",
                 flush_after=True,
-                messages=[
-                    {
-                        "content": reply,
-                        "timestamp": now_ms,
-                        "sender_id": persona_id,
-                        "sender_name": persona_name,
-                        "role": "assistant",
-                    }
-                ],
+                messages=build_proactive_messages(
+                    persona_id=persona_id,
+                    persona_name=persona_name,
+                    reply=reply,
+                    timestamp_ms=now_ms,
+                ),
             )
             if stored:
                 print(f"  [evermemos] stored proactive turn (tick={tick_id[:8]})")
@@ -482,15 +466,10 @@ class EverMemOSClient:
                 group_id=group_id,
                 label="session flush",
                 flush_after=True,
-                messages=[
-                    {
-                        "content": "[session_end]",
-                        "timestamp": int(time.time() * 1000),
-                        "sender_id": persona_id,
-                        "sender_name": "system",
-                        "role": "assistant",
-                    }
-                ],
+                messages=build_session_flush_messages(
+                    persona_id=persona_id,
+                    timestamp_ms=int(time.time() * 1000),
+                ),
             )
             if flushed:
                 print(f"  [evermemos] 🔚 session flushed for {user_id}")

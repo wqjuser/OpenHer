@@ -117,3 +117,70 @@ def test_get_protocol_builds_v1_and_compat_payloads():
         "sort_order": "desc",
         "filters": {"user_id": "u"},
     }
+
+
+def test_protocol_builds_health_flush_and_message_payloads():
+    from providers.memory.evermemos import protocol
+
+    assert protocol.build_oss_health_search_body() == {
+        "query": "__healthcheck__",
+        "method": "keyword",
+        "user_id": "__healthcheck__",
+        "app_id": "openher",
+        "project_id": "openher",
+        "top_k": 1,
+    }
+    assert protocol.build_memory_flush_body("u", "g") == {
+        "session_id": "g",
+        "app_id": "openher",
+        "project_id": "openher",
+    }
+    assert protocol.build_memory_flush_body("u", "")["session_id"] == "u"
+
+    assert protocol.build_turn_messages(
+        user_id="u",
+        persona_id="luna",
+        persona_name="Luna",
+        user_name="QA",
+        user_message="hi",
+        agent_reply="hello",
+        timestamp_ms=1000,
+    ) == [
+        {
+            "content": "hi",
+            "timestamp": 1000,
+            "sender_id": "u",
+            "sender_name": "QA",
+            "role": "user",
+        },
+        {
+            "content": "hello",
+            "timestamp": 1001,
+            "sender_id": "luna",
+            "sender_name": "Luna",
+            "role": "assistant",
+        },
+    ]
+    assert protocol.build_proactive_messages(
+        persona_id="luna",
+        persona_name="Luna",
+        reply="ping",
+        timestamp_ms=2000,
+    ) == [
+        {
+            "content": "ping",
+            "timestamp": 2000,
+            "sender_id": "luna",
+            "sender_name": "Luna",
+            "role": "assistant",
+        }
+    ]
+    assert protocol.build_session_flush_messages("luna", 3000) == [
+        {
+            "content": "[session_end]",
+            "timestamp": 3000,
+            "sender_id": "luna",
+            "sender_name": "system",
+            "role": "assistant",
+        }
+    ]

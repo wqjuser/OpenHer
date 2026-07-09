@@ -37,6 +37,17 @@ def build_health_search_body() -> dict[str, object]:
     }
 
 
+def build_oss_health_search_body() -> dict[str, object]:
+    return {
+        "query": "__healthcheck__",
+        "method": "keyword",
+        "user_id": "__healthcheck__",
+        "app_id": APP_ID,
+        "project_id": PROJECT_ID,
+        "top_k": 1,
+    }
+
+
 def build_cloud_search_body(
     query: str,
     user_id: str,
@@ -100,6 +111,73 @@ def build_memory_batch_body(
         "session_id": group_id or user_id,
         "messages": messages,
     }
+
+
+def build_memory_flush_body(user_id: str, group_id: str) -> dict[str, object]:
+    return {
+        "session_id": group_id or user_id,
+        "app_id": APP_ID,
+        "project_id": PROJECT_ID,
+    }
+
+
+def build_turn_messages(
+    user_id: str,
+    persona_id: str,
+    persona_name: str,
+    user_name: str,
+    user_message: str,
+    agent_reply: str,
+    timestamp_ms: int,
+) -> list[dict[str, object]]:
+    return [
+        {
+            "content": user_message,
+            "timestamp": timestamp_ms,
+            "sender_id": user_id,
+            "sender_name": user_name,
+            "role": "user",
+        },
+        {
+            "content": agent_reply,
+            "timestamp": timestamp_ms + 1,
+            "sender_id": persona_id,
+            "sender_name": persona_name,
+            "role": "assistant",
+        },
+    ]
+
+
+def build_proactive_messages(
+    persona_id: str,
+    persona_name: str,
+    reply: str,
+    timestamp_ms: int,
+) -> list[dict[str, object]]:
+    return [
+        {
+            "content": reply,
+            "timestamp": timestamp_ms,
+            "sender_id": persona_id,
+            "sender_name": persona_name,
+            "role": "assistant",
+        }
+    ]
+
+
+def build_session_flush_messages(
+    persona_id: str,
+    timestamp_ms: int,
+) -> list[dict[str, object]]:
+    return [
+        {
+            "content": "[session_end]",
+            "timestamp": timestamp_ms,
+            "sender_id": persona_id,
+            "sender_name": "system",
+            "role": "assistant",
+        }
+    ]
 
 
 def build_legacy_memory_payload(
