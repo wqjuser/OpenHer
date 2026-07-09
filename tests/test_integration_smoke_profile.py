@@ -64,6 +64,7 @@ def test_provider_smoke_script_skips_without_opt_in() -> None:
 def test_makefile_and_readme_document_integration_smoke() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme_en = (ROOT / "README_EN.md").read_text(encoding="utf-8")
     env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
 
     assert "integration-smoke:" in makefile
@@ -93,6 +94,9 @@ def test_makefile_and_readme_document_integration_smoke() -> None:
     assert "IMAGE_API_KEY" in env_example
     assert "MEMORY_API_KEY" in readme
     assert "MEMORY_BASE_URL" in readme
+    assert "EVERMEMOS_BASE_URL=https://api.evermind.ai/v1" not in readme_en
+    assert "EVERMEMOS_API_KEY=your_api_key" in readme_en
+    assert "OpenHer uses the default EverMemOS cloud URL" in readme_en
     assert "MEMORY_API_KEY" in env_example
     assert "MEMORY_BASE_URL" in env_example
     assert "OPENHER_DATA_DIR" in readme

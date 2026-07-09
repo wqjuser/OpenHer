@@ -369,9 +369,9 @@ Connect [EverMemOS](https://evermind.ai) for cross-session persistent memory.
 
 Register at [evermind.ai](https://evermind.ai) and set in `.env`:
 ```bash
-EVERMEMOS_BASE_URL=https://api.evermind.ai/v1
 EVERMEMOS_API_KEY=your_api_key
 ```
+OpenHer uses the default EverMemOS cloud URL automatically. Set `EVERMEMOS_BASE_URL` only for self-hosted or private gateway deployments.
 
 **Option B — Self-Hosted:**
 
