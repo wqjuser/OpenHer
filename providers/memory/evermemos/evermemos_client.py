@@ -32,7 +32,7 @@ try:
 except ImportError:
     httpx = None
 
-from providers.config import normalize_evermemos_base_url
+from providers.config import _configured_secret, normalize_evermemos_base_url
 from providers.memory.evermemos.circuit_breaker import _CircuitBreaker, _NoOpBreaker
 from providers.memory.evermemos.config import _CFG, _fmt_latency, _load_memory_config
 from providers.memory.evermemos.projection import (
@@ -96,7 +96,11 @@ class EverMemOSClient:
         )
 
         # Optional API key (for cloud fallback or authenticated setups)
-        self._api_key = api_key or os.environ.get("EVERMEMOS_API_KEY") or os.environ.get("MEMORY_API_KEY")
+        self._api_key = _configured_secret(
+            api_key
+            or os.environ.get("EVERMEMOS_API_KEY", "")
+            or os.environ.get("MEMORY_API_KEY", "")
+        )
 
         self._client: Optional["httpx_types.AsyncClient"] = None
         self._initialized = False
