@@ -215,6 +215,20 @@ class ProviderConfigBoundaryTests(unittest.TestCase):
         self.assertEqual(secret.missing_key_env, "")
         self.assertEqual(secret.env_options, ["DEEPSEEK_API_KEY", "LLM_API_KEY"])
 
+    def test_provider_secret_resolution_ignores_placeholder_values(self):
+        from providers import config as provider_config
+
+        with patch.dict(os.environ, {"DASHSCOPE_API_KEY": "your_dashscope_api_key_here"}, clear=True):
+            secret = provider_config._resolve_provider_secret(
+                "dashscope",
+                {"api_key_env": "DASHSCOPE_API_KEY"},
+                "LLM_API_KEY",
+            )
+
+        self.assertEqual(secret.api_key, "")
+        self.assertFalse(secret.available)
+        self.assertEqual(secret.missing_key_env, "DASHSCOPE_API_KEY or LLM_API_KEY")
+
     def test_provider_secret_resolution_marks_no_key_provider_available(self):
         from providers import config as provider_config
 

@@ -108,6 +108,20 @@ def test_makefile_and_readme_document_integration_smoke() -> None:
     assert "make data-reset" in readme
 
 
+def test_env_example_does_not_ship_active_placeholder_api_keys() -> None:
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+
+    active_placeholders = [
+        line
+        for line in env_example.splitlines()
+        if line
+        and not line.lstrip().startswith("#")
+        and "API_KEY=your_" in line
+    ]
+
+    assert active_placeholders == []
+
+
 async def test_llm_smoke_skips_when_provider_is_unavailable() -> None:
     from scripts.integration import provider_smoke
 

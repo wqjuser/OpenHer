@@ -69,6 +69,14 @@ def _missing_key_env(options: list[str]) -> str:
     return " or ".join(options)
 
 
+def _configured_secret(value: str) -> str:
+    """Return real secret values, ignoring copied example placeholders."""
+    normalized = value.strip().lower()
+    if normalized.startswith("your_") and "key" in normalized and normalized.endswith("_here"):
+        return ""
+    return value
+
+
 def normalize_evermemos_base_url(base_url: str) -> str:
     """Normalize EverMemOS base URLs to the active API path."""
     url = base_url.rstrip("/")
@@ -90,7 +98,7 @@ def _resolve_provider_secret(
         str(preset.get("api_key_env") or ""),
         generic_env,
     )
-    api_key = _first_env(*env_options)
+    api_key = _configured_secret(_first_env(*env_options))
     available = bool(preset.get("no_key_required", False)) or bool(api_key)
     missing_key_env = "" if available else _missing_key_env(env_options)
     return ResolvedProviderSecret(
