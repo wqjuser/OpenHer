@@ -91,6 +91,7 @@ class ProviderConfigBoundaryTests(unittest.TestCase):
             "get_memory_provider_config",
             "get_image_config",
             "get_image_provider_config",
+            "normalize_evermemos_base_url",
             "reload",
         }
 
@@ -488,6 +489,26 @@ class ProviderConfigBoundaryTests(unittest.TestCase):
         self.assertTrue(memory["enabled"])
         self.assertEqual(memory["base_url"], "https://api.evermind.ai/api/v1")
         self.assertEqual(memory["api_key"], "")
+
+    def test_evermemos_base_url_normalizer_handles_cloud_aliases(self):
+        from providers import config as provider_config
+
+        self.assertEqual(
+            provider_config.normalize_evermemos_base_url("https://api.evermind.ai/api/v0"),
+            "https://api.evermind.ai/api/v1",
+        )
+        self.assertEqual(
+            provider_config.normalize_evermemos_base_url("https://api.evermind.ai/v1"),
+            "https://api.evermind.ai/api/v1",
+        )
+        self.assertEqual(
+            provider_config.normalize_evermemos_base_url("http://localhost:1995"),
+            "http://localhost:1995/api/v1",
+        )
+        self.assertEqual(
+            provider_config.normalize_evermemos_base_url("http://localhost:1995/api/v1"),
+            "http://localhost:1995/api/v1",
+        )
 
     def test_tts_config_marks_active_provider_unavailable_when_key_is_missing(self):
         with patch.dict(os.environ, {}, clear=True):

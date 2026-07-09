@@ -16,7 +16,10 @@ except ImportError:
 _config: Optional[dict] = None
 _CONFIG_PATH = Path(__file__).parent / "api.yaml"
 EVERMEMOS_CLOUD_BASE_URL = "https://api.evermind.ai/api/v1"
-_EVERMEMOS_CLOUD_V0_BASE_URL = "https://api.evermind.ai/api/v0"
+_EVERMEMOS_CLOUD_BASE_URL_ALIASES = {
+    "https://api.evermind.ai/api/v0",
+    "https://api.evermind.ai/v1",
+}
 
 _PROVIDER_DEFAULT_MODELS = {
     "dashscope": "qwen-max",
@@ -69,7 +72,7 @@ def _missing_key_env(options: list[str]) -> str:
 def normalize_evermemos_base_url(base_url: str) -> str:
     """Normalize EverMemOS base URLs to the active API path."""
     url = base_url.rstrip("/")
-    if url == _EVERMEMOS_CLOUD_V0_BASE_URL:
+    if url in _EVERMEMOS_CLOUD_BASE_URL_ALIASES:
         return EVERMEMOS_CLOUD_BASE_URL
     if url and not url.endswith("/api/v1") and "/api/" not in url:
         return f"{url}/api/v1"
