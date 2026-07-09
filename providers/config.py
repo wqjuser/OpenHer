@@ -273,7 +273,7 @@ def get_memory_config() -> dict:
         env_base_url or ever_cfg.get("base_url", "") or mem.get("base_url", "")
     )
     api_key_env = ever_cfg.get("api_key_env", "") or mem.get("api_key_env", "EVERMEMOS_API_KEY")
-    api_key = _first_env(api_key_env, "EVERMEMOS_API_KEY", "MEMORY_API_KEY")
+    api_key = _configured_secret(_first_env(api_key_env, "EVERMEMOS_API_KEY", "MEMORY_API_KEY"))
 
     enabled = ever_cfg.get("enabled", mem.get("enabled", False))
     if env_base_url or api_key:

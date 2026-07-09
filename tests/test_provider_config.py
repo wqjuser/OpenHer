@@ -484,6 +484,26 @@ class ProviderConfigBoundaryTests(unittest.TestCase):
         self.assertEqual(provider_memory["api_key"], "generic-memory-key")
         self.assertEqual(provider_nested, provider_memory)
 
+    def test_memory_config_ignores_provider_placeholder_api_key(self):
+        with patch.dict(os.environ, {"EVERMEMOS_API_KEY": "your_evermemos_api_key_here"}, clear=True):
+            _api_config, provider_config = self._reload_configs()
+
+            memory = provider_config.get_memory_config()
+
+        self.assertFalse(memory["enabled"])
+        self.assertEqual(memory["base_url"], "")
+        self.assertEqual(memory["api_key"], "")
+
+    def test_memory_config_ignores_generic_placeholder_api_key(self):
+        with patch.dict(os.environ, {"MEMORY_API_KEY": "your_current_memory_api_key_here"}, clear=True):
+            _api_config, provider_config = self._reload_configs()
+
+            memory = provider_config.get_memory_config()
+
+        self.assertFalse(memory["enabled"])
+        self.assertEqual(memory["base_url"], "")
+        self.assertEqual(memory["api_key"], "")
+
     def test_memory_config_uses_generic_base_url(self):
         with patch.dict(os.environ, {"MEMORY_BASE_URL": "http://memory.example.test/api/v1"}, clear=True):
             _api_config, provider_config = self._reload_configs()
