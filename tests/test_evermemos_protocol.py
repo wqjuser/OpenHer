@@ -117,6 +117,21 @@ def test_get_protocol_builds_v1_and_compat_payloads():
         "sort_order": "desc",
         "filters": {"user_id": "u"},
     }
+    assert protocol.load_memory_v1_type("profile") == "profile"
+    assert protocol.load_memory_v1_type("episodic_memory") == "episode"
+    assert protocol.load_memory_v1_type("event_log") is None
+    assert protocol.load_memory_collection_key("profile") == "profiles"
+    assert protocol.load_memory_collection_key("episode") == "episodes"
+    assert protocol.load_memory_collection_key("foresight") == "episodes"
+    assert protocol.build_legacy_list_body("u", "g", "foresight") == {
+        "memory_type": "foresight",
+        "user_id": "u",
+        "group_ids": ["g"],
+    }
+    assert protocol.build_legacy_list_body("u", "", "event_log") == {
+        "memory_type": "event_log",
+        "user_id": "u",
+    }
 
 
 def test_protocol_builds_health_flush_and_message_payloads():

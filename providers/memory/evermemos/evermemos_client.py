@@ -49,6 +49,7 @@ from providers.memory.evermemos.protocol import (
     build_compat_get_body,
     build_health_search_body,
     build_legacy_memory_payload,
+    build_legacy_list_body,
     build_legacy_search_body,
     build_memory_flush_body,
     build_memory_batch_body,
@@ -58,6 +59,8 @@ from providers.memory.evermemos.protocol import (
     build_session_flush_messages,
     build_turn_messages,
     build_v1_get_body,
+    load_memory_collection_key,
+    load_memory_v1_type,
     normalize_search_method,
     search_top_k,
 )
@@ -291,10 +294,7 @@ class EverMemOSClient:
 
             async def _get_type(mtype: str):
                 try:
-                    v1_type = {
-                        "profile": "profile",
-                        "episodic_memory": "episode",
-                    }.get(mtype)
+                    v1_type = load_memory_v1_type(mtype)
                     if v1_type:
                         resp = await self._request_json_candidates(
                             "POST",
@@ -304,7 +304,7 @@ class EverMemOSClient:
                         )
                         if resp and resp.status_code == 200:
                             data = resp.json().get("data", {})
-                            key = "profiles" if v1_type == "profile" else "episodes"
+                            key = load_memory_collection_key(v1_type)
                             return {"result": {"memories": data.get(key, [])}}
                         if resp and resp.status_code in (404, 405):
                             resp = await client.request(
@@ -315,16 +315,13 @@ class EverMemOSClient:
                             )
                             if resp.status_code == 200:
                                 data = resp.json().get("data", {})
-                                key = "profiles" if mtype == "profile" else "episodes"
+                                key = load_memory_collection_key(mtype)
                                 return {"result": {"memories": data.get(key, [])}}
                         return None
 
-                    body: dict[str, object] = {"memory_type": mtype, "user_id": user_id}
-                    if group_id:
-                        body["group_ids"] = [group_id]
                     resp = await client.request(
                         "GET", "/memories",
-                        json=body,
+                        json=build_legacy_list_body(user_id, group_id, mtype),
                         timeout=timeout,
                     )
                     if resp.status_code == 200:

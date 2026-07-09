@@ -231,3 +231,25 @@ def build_compat_get_body(
     body = build_v1_get_body(user_id, memory_type, page_size)
     body["filters"] = {"user_id": user_id}
     return body
+
+
+def load_memory_v1_type(memory_type: str) -> str | None:
+    return {
+        "profile": "profile",
+        "episodic_memory": "episode",
+    }.get(memory_type)
+
+
+def load_memory_collection_key(memory_type: str) -> str:
+    return "profiles" if memory_type == "profile" else "episodes"
+
+
+def build_legacy_list_body(
+    user_id: str,
+    group_id: str,
+    memory_type: str,
+) -> dict[str, object]:
+    body: dict[str, object] = {"memory_type": memory_type, "user_id": user_id}
+    if group_id:
+        body["group_ids"] = [group_id]
+    return body
