@@ -32,6 +32,7 @@ try:
 except ImportError:
     httpx = None
 
+from providers.config import normalize_evermemos_base_url
 from providers.memory.evermemos.circuit_breaker import _CircuitBreaker, _NoOpBreaker
 from providers.memory.evermemos.config import _CFG, _fmt_latency, _load_memory_config
 from providers.memory.evermemos.projection import (
@@ -86,19 +87,13 @@ class EverMemOSClient:
     """
 
     def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None):
-        self._base_url = (
+        self._base_url = normalize_evermemos_base_url(
             base_url
             or os.environ.get("EVERMEMOS_BASE_URL")
             or os.environ.get("MEMORY_BASE_URL")
             or _CFG.get("base_url")
             or "http://localhost:1995/api/v1"
         )
-        # Normalize: strip trailing slash, ensure /api/v1 suffix
-        self._base_url = self._base_url.rstrip("/")
-        if not self._base_url.endswith("/api/v1"):
-            # If user provides "http://localhost:1995", auto-append
-            if "/api/" not in self._base_url:
-                self._base_url += "/api/v1"
 
         # Optional API key (for cloud fallback or authenticated setups)
         self._api_key = api_key or os.environ.get("EVERMEMOS_API_KEY") or os.environ.get("MEMORY_API_KEY")

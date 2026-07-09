@@ -941,6 +941,26 @@ class EverMemOSLoggingRegressionTests(unittest.TestCase):
         self.assertEqual(client._api_key, "generic-memory-key")
         self.assertEqual(client._client.headers["Authorization"], "Bearer generic-memory-key")
 
+    def test_evermemos_client_normalizes_deprecated_cloud_v0_base_url(self):
+        ever = importlib.import_module("providers.memory.evermemos.evermemos_client")
+
+        class FakeAsyncClient:
+            def __init__(self, *, base_url, headers, timeout, trust_env):
+                self.base_url = base_url
+                self.headers = headers
+                self.timeout = timeout
+                self.trust_env = trust_env
+
+        with patch.object(ever, "httpx", SimpleNamespace(AsyncClient=FakeAsyncClient)):
+            client = ever.EverMemOSClient(
+                base_url="https://api.evermind.ai/api/v0",
+                api_key="cloud-key",
+            )
+
+        self.assertTrue(client.available)
+        self.assertEqual(client._base_url, "https://api.evermind.ai/api/v1")
+        self.assertEqual(client._client.base_url, "https://api.evermind.ai/api/v1")
+
     def test_store_turn_reports_success_as_boolean(self):
         ever = importlib.import_module("providers.memory.evermemos.evermemos_client")
 

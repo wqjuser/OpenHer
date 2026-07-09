@@ -12,6 +12,7 @@ from providers.config import get_memory_config
 from providers.config import get_memory_provider_config
 from providers.config import get_tts_config
 from providers.config import get_tts_provider_config
+from providers.config import normalize_evermemos_base_url
 from providers.config import reload
 
 
@@ -26,5 +27,6 @@ __all__ = [
     "get_memory_provider_config",
     "get_tts_config",
     "get_tts_provider_config",
+    "normalize_evermemos_base_url",
     "reload",
 ]

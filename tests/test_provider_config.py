@@ -479,6 +479,16 @@ class ProviderConfigBoundaryTests(unittest.TestCase):
         self.assertEqual(memory["base_url"], "http://memory.example.test/api/v1")
         self.assertEqual(memory["api_key"], "")
 
+    def test_memory_config_normalizes_deprecated_cloud_v0_url(self):
+        with patch.dict(os.environ, {"EVERMEMOS_BASE_URL": "https://api.evermind.ai/api/v0"}, clear=True):
+            _api_config, provider_config = self._reload_configs()
+
+            memory = provider_config.get_memory_config()
+
+        self.assertTrue(memory["enabled"])
+        self.assertEqual(memory["base_url"], "https://api.evermind.ai/api/v1")
+        self.assertEqual(memory["api_key"], "")
+
     def test_tts_config_marks_active_provider_unavailable_when_key_is_missing(self):
         with patch.dict(os.environ, {}, clear=True):
             _api_config, provider_config = self._reload_configs()

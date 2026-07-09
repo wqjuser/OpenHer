@@ -16,6 +16,7 @@ except ImportError:
 _config: Optional[dict] = None
 _CONFIG_PATH = Path(__file__).parent / "api.yaml"
 EVERMEMOS_CLOUD_BASE_URL = "https://api.evermind.ai/api/v1"
+_EVERMEMOS_CLOUD_V0_BASE_URL = "https://api.evermind.ai/api/v0"
 
 _PROVIDER_DEFAULT_MODELS = {
     "dashscope": "qwen-max",
@@ -63,6 +64,16 @@ def _api_key_env_options(provider: str, preset_env: str, generic_env: str = "") 
 def _missing_key_env(options: list[str]) -> str:
     """Render a readable missing-key hint for accepted API-key env vars."""
     return " or ".join(options)
+
+
+def normalize_evermemos_base_url(base_url: str) -> str:
+    """Normalize EverMemOS base URLs to the active API path."""
+    url = base_url.rstrip("/")
+    if url == _EVERMEMOS_CLOUD_V0_BASE_URL:
+        return EVERMEMOS_CLOUD_BASE_URL
+    if url and not url.endswith("/api/v1") and "/api/" not in url:
+        return f"{url}/api/v1"
+    return url
 
 
 def _resolve_provider_secret(
@@ -247,7 +258,9 @@ def get_memory_config() -> dict:
     ever_cfg = mem.get("evermemos", {})
 
     env_base_url = _first_env("EVERMEMOS_BASE_URL", "MEMORY_BASE_URL")
-    base_url = env_base_url or ever_cfg.get("base_url", "") or mem.get("base_url", "")
+    base_url = normalize_evermemos_base_url(
+        env_base_url or ever_cfg.get("base_url", "") or mem.get("base_url", "")
+    )
     api_key_env = ever_cfg.get("api_key_env", "") or mem.get("api_key_env", "EVERMEMOS_API_KEY")
     api_key = _first_env(api_key_env, "EVERMEMOS_API_KEY", "MEMORY_API_KEY")
 
